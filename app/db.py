@@ -1,45 +1,64 @@
 """SQLAlchemy engine and session factory for the SQLite history database."""
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-from app.models import Base
 
 _engine = None
 _SessionLocal = None
 
-# (table, column, DDL) added to pre-existing tables that lack them.
-# create_all only creates new tables; these make existing dev DBs evolve.
-_COLUMN_MIGRATIONS = [
-    ("system_metrics", "swap_total", "INTEGER"),
-]
 
+def _run_migrations(sqlite_path: str) -> None:
+    """Apply pending Alembic migrations to the given SQLite file.
 
-def _apply_column_migrations(engine) -> None:
-    for table, column, ddl in _COLUMN_MIGRATIONS:
-        try:
-            with engine.begin() as conn:
-                cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))]
-                if column not in cols:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
-        except Exception:
-            # table may not exist yet; create_all handles fresh DBs
-            pass
+    Runs on every app start/restart so the schema always matches the models.
+    A pre-Alembic database (tables already present but no ``alembic_version``
+    row) is stamped at head as the baseline instead of being re-created.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    url = f"sqlite:///{sqlite_path}"
+    root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", url)
+
+    insp_engine = create_engine(url)
+    try:
+        with insp_engine.connect() as insp:
+            has_tables = insp.dialect.has_table(insp, "system_metrics")
+            if insp.dialect.has_table(insp, "alembic_version"):
+                # The table can exist (e.g. after a bare autogenerate run) with
+                # no revision recorded; only a stamped row counts as versioned.
+                stamped = insp.scalar(text("SELECT version_num FROM alembic_version")) is not None
+            else:
+                stamped = False
+    finally:
+        insp_engine.dispose()
+
+    if has_tables and not stamped:
+        # Legacy database created before Alembic: its schema already matches
+        # the initial revision, so record it as up-to-date rather than failing
+        # on "table already exists".
+        command.stamp(cfg, "head")
+    else:
+        command.upgrade(cfg, "head")
 
 
 def init_db(sqlite_path: str | None = None) -> None:
-    """Create the engine + session factory and ensure tables exist."""
+    """Create the engine + session factory and ensure the schema is current."""
     global _engine, _SessionLocal
     path = sqlite_path or get_settings().sqlite_path
     _engine = create_engine(
         f"sqlite:///{path}",
         connect_args={"check_same_thread": False},
     )
-    Base.metadata.create_all(_engine)
-    _apply_column_migrations(_engine)
+    _run_migrations(path)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
 
 

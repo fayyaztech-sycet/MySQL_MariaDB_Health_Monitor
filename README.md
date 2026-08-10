@@ -107,7 +107,24 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 
 The scheduler starts automatically with the app and begins collecting metrics.
 
-### 5. Open the dashboard
+### 5. Database migrations (automatic)
+
+Schema is managed with **Alembic** (`alembic.ini` + `migrations/`). Migrations
+run **automatically on every app start/restart** (inside `app/db.py`, invoked
+from the FastAPI lifespan), so the SQLite schema always matches the models —
+no manual step is needed.
+
+- A **fresh** database is fully created and stamped by `alembic upgrade head`.
+- A **pre-Alembic** database (created by an older build) is detected and
+  stamped at the current head instead of being re-created.
+- To author a new migration after changing `app/models.py`:
+  ```bash
+  alembic revision --autogenerate -m "describe the change"
+  ```
+  and review the generated file in `migrations/versions/` before it is applied
+  on the next boot.
+
+### 6. Open the dashboard
 - Dashboard: http://localhost:8000/
 - Queries:   http://localhost:8000/dashboard/queries
 - Health:    http://localhost:8000/dashboard/health
