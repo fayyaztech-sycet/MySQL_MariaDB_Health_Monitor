@@ -1,687 +1,183 @@
-You can build this as a **MySQL Performance Monitoring & Query Intelligence Platform**. Below is a detailed development prompt you can give to an AI coding assistant to generate the Python application.
+# MySQL Profiler — Performance Monitoring & Query Intelligence Platform
+
+A production-grade monitoring agent for MySQL/MariaDB databases. It continuously
+collects server status, slow-query stats, InnoDB internals and OS metrics, then
+analyzes query performance, estimates memory pressure, emits rule-based
+recommendations and alerts, and renders a live dashboard plus daily HTML reports.
+
+Think of it as a lightweight **Percona PMM + MySQLTuner** tailored for a
+MariaDB/ERP environment.
 
 ---
 
-# Project Prompt: MySQL Query Profiler + Server Health Monitoring Application (Python)
+## Features
 
-## Objective
-
-Build a production-grade Python application that continuously monitors MySQL/MariaDB databases, analyzes query performance, tracks server resource usage, stores historical metrics, and generates optimization reports.
-
-The application should work as a long-running monitoring agent and provide historical analysis for future database tuning decisions.
-
----
-
-# Technology Stack
-
-Use:
-
-* Python 3.12+
-* FastAPI for backend API
-* SQLAlchemy ORM
-* MySQL Connector/Python
-* SQLite/PostgreSQL for storing monitoring history
-* psutil for OS metrics
-* pandas for analysis
-* matplotlib/plotly for graphs
-* APScheduler for scheduled collectors
-* Jinja2 for HTML reports
-* Docker support
-
-Optional:
-
-* Redis for queue/cache
-* Celery for distributed monitoring
-* Prometheus exporter support
+- **Collectors** — OS metrics (psutil), MySQL status & sizes, process list,
+  slow queries (via `performance_schema` digests), InnoDB status
+- **Analysis** — query ranking (most expensive / worst latency), EXPLAIN-based
+  index hints, memory-pressure estimation, rule-based recommendations
+- **Alerts** — high CPU, low available RAM, high disk, deadlocks, slow queries
+- **Dashboard** — FastAPI + Plotly HTML pages (Overview, Queries, Server Health)
+- **JSON API** — `/api/*` endpoints with API-key auth
+- **Reports** — daily `mysql-report-YYYY-MM-DD.html` with a health score
+- **Scheduler** — APScheduler cadences: 5s system, 1m MySQL, 1h analysis, daily report
+- **Docker** — single image, optional dedicated worker
 
 ---
 
-# Application Architecture
+## Tech Stack
 
-Create modules:
+Python 3.12+, FastAPI, SQLAlchemy (SQLite storage), mysql-connector-python,
+psutil, pandas, plotly, jinja2, APScheduler, pydantic-settings, Docker.
+
+---
+
+## Project Structure
 
 ```
-mysql-profiler/
-
-├── app/
-│   ├── main.py
-│   ├── config.py
-│
-├── collectors/
-│   ├── mysql_status.py
-│   ├── slow_queries.py
-│   ├── processlist.py
-│   ├── performance_schema.py
-│   └── system_metrics.py
-│
-├── analyzers/
-│   ├── query_analyzer.py
-│   ├── index_analyzer.py
-│   ├── memory_analyzer.py
-│   └── recommendation_engine.py
-│
-├── database/
-│   ├── models.py
-│   └── connection.py
-│
-├── reports/
-│   ├── html_report.py
-│   └── charts.py
-│
-├── scheduler/
-│   └── jobs.py
-│
-├── api/
-│   └── routes.py
-│
-└── storage/
+app/
+├── main.py                 # FastAPI app + lifespan (starts scheduler)
+├── config.py               # env-driven settings
+├── db.py                   # SQLite engine + sessions
+├── models.py               # ORM models
+├── mysql_connection.py     # MySQL connection helpers
+├── collectors/             # system, mysql_status, processlist, slow_queries, innodb
+├── analyzers/              # query, index, memory, recommendation engine, analyze job
+├── alerts/                 # alerting rules
+├── scheduler/              # APScheduler jobs
+├── reports/                # charts + html report generator
+└── api/                    # routes + dashboard templates
+tests/                      # pytest suite
+run_worker.py               # optional standalone scheduler worker
+Dockerfile / docker-compose.yml
 ```
 
 ---
 
-# Database Monitoring Features
+## Setup & Run
 
-## 1. MySQL Connection Monitor
+### 1. Prerequisites
+- Python 3.12+
+- A reachable MySQL/MariaDB server (local or remote)
 
-Support:
+### 2. Environment configuration
+Copy the example env file and edit it:
 
-* MariaDB 10.x
-* MySQL 8.x
-
-Collect:
-
-```
-Server version
-Database size
-Table sizes
-Connection count
-Active queries
-Uptime
-Threads
-Buffer pool status
+```bash
+cp .env.example .env
 ```
 
-Store:
+The main settings (see [.env.example](.env.example) for all options):
 
-```
-mysql_servers
+```ini
+# Target MySQL / MariaDB database
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your-password
+MYSQL_DATABASE=your-database
 
-id
-hostname
-port
-version
-created_at
-```
+# Web server (host/port for the dashboard + API)
+APP_HOST=0.0.0.0
+APP_PORT=8000
 
----
-
-# 2. Slow Query Collector
-
-Read:
-
-```
-slow_query_log
+# Alert thresholds, collection cadences, API token...
+API_TOKEN=changeme-token
 ```
 
-Capture:
+> Credentials are read from `.env` only — never commit real credentials.
+> `.env` is git-ignored; `.env.example` is the committed template.
 
-* Query text
-* Database
-* User
-* Execution time
-* Lock time
-* Rows examined
-* Rows sent
-* Timestamp
-
-Database:
-
+### 3. Install dependencies
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
-query_logs
 
-id
-server_id
-query_hash
-query_text
-database_name
-
-execution_time
-lock_time
-
-rows_examined
-rows_sent
-
-created_at
+### 4. Run the app
+```bash
+uvicorn app.main:app --host $APP_HOST --port $APP_PORT
 ```
+
+Or with a custom port explicitly:
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+The scheduler starts automatically with the app and begins collecting metrics.
+
+### 5. Open the dashboard
+- Dashboard: http://localhost:8000/
+- Queries:   http://localhost:8000/dashboard/queries
+- Health:    http://localhost:8000/dashboard/health
+- API docs:  http://localhost:8000/docs
 
 ---
 
-# 3. Query Fingerprinting
+## Run as a standalone worker (optional)
 
-Normalize queries:
+To run collectors without serving HTTP (e.g. a dedicated worker):
 
-Example:
-
-Before:
-
-```sql
-SELECT * FROM students WHERE id=100
+```bash
+python run_worker.py
 ```
 
-After:
-
-```sql
-SELECT * FROM students WHERE id=?
-```
-
-Generate:
-
-```
-query_hash
-```
-
-Group similar queries.
-
-Example:
-
-```
-Query:
-student search
-
-Calls:
-250000
-
-Total Time:
-8 hours
-
-Average:
-120ms
-```
+> Run **either** the API (which embeds the scheduler) **or** a worker — never
+> both against the same monitored MySQL server, or metrics will be double-collected.
 
 ---
 
-# 4. Query Performance Ranking
+## Run with Docker
 
-Generate rankings:
-
-## Most expensive queries
-
-Sort by:
-
-```
-total_execution_time
-```
-
-Example:
-
-```
-Rank Query                 Time
-
-1     attendance report    6h
-2     student search       4h
-3     fees calculation     2h
-```
-
-## Worst latency
-
-Sort:
-
-```
-avg_execution_time
-```
-
----
-
-# 5. EXPLAIN Analyzer
-
-For slow queries:
-
-Automatically execute:
-
-```sql
-EXPLAIN FORMAT=JSON query
-```
-
-Analyze:
-
-Detect:
-
-* Full table scan
-* Missing indexes
-* Temporary tables
-* Filesort
-* Large row scans
-
-Generate:
-
-Example:
-
-```
-Problem:
-
-Table:
-student_information
-
-
-Issue:
-500000 rows scanned
-
-
-Recommendation:
-
-CREATE INDEX idx_student_id
-ON student_information(student_id);
-```
-
----
-
-# 6. Memory Analysis
-
-Calculate MySQL memory requirement.
-
-Collect:
-
-```
-innodb_buffer_pool_size
-
-max_connections
-
-sort_buffer_size
-
-join_buffer_size
-
-read_buffer_size
-
-tmp_table_size
-
-max_heap_table_size
-```
-
-Calculate:
-
-Formula:
-
-```
-Estimated Memory =
-innodb_buffer_pool
-+
-(max_connections × per_connection_memory)
-+
-temporary_buffers
-```
-
-Generate:
-
-Example:
-
-```
-Current:
-
-RAM:
-16GB
-
-MySQL Possible Usage:
-
-21GB
-
-
-Risk:
-High memory pressure
-```
-
----
-
-# 7. InnoDB Health Monitoring
-
-Collect:
-
-```sql
-SHOW ENGINE INNODB STATUS
-```
-
-Parse:
-
-Monitor:
-
-* Deadlocks
-* Buffer pool hit ratio
-* Dirty pages
-* Pending writes
-* History list length
-
-Store:
-
-```
-innodb_metrics
-
-buffer_hit_ratio
-
-deadlocks
-
-dirty_pages
-
-pending_io
-
-created_at
-```
-
----
-
-# 8. OS Health Monitoring
-
-Using psutil collect:
-
-## CPU
-
-```
-cpu_percent
-
-load_average
-
-cpu_frequency
-```
-
-## Memory
-
-```
-total_ram
-
-used_ram
-
-available_ram
-
-swap_usage
-```
-
-## Disk
-
-```
-disk_usage
-
-disk_read
-
-disk_write
-
-iops
-```
-
-## Network
-
-```
-bytes_sent
-
-bytes_received
-```
-
-Store every:
-
-```
-5 seconds
-```
-
-Table:
-
-```
-system_metrics
-
-cpu
-
-memory
-
-disk_read
-
-disk_write
-
-network_in
-
-network_out
-
-timestamp
-```
-
----
-
-# 9. Process Monitoring
-
-Track:
-
-MySQL process:
-
-```
-mysqld
-mariadbd
-```
-
-Collect:
-
-```
-CPU usage
-
-RAM usage
-
-threads
-
-open files
-```
-
----
-
-# 10. Alert System
-
-Create rules:
-
-Example:
-
-## High CPU
-
-```
-CPU > 90%
-for 5 minutes
-```
-
-Alert:
-
-```
-Database server CPU critical
-```
-
----
-
-## Slow Query
-
-```
-execution_time > 5 sec
-```
-
-Alert:
-
-```
-Query taking too long
-```
-
----
-
-## Memory
-
-```
-Available RAM < 10%
-```
-
----
-
-# 11. Dashboard
-
-Create FastAPI + HTML dashboard.
-
-Pages:
-
-## Overview
-
-Show:
-
-```
-CPU
-RAM
-Disk
-MySQL Connections
-Slow Queries
-Database Size
-```
-
----
-
-## Query Dashboard
-
-Graphs:
-
-* Slowest queries
-* Most executed queries
-* Total query time
-* Query trends
-
----
-
-## Server Health
-
-Charts:
-
-```
-CPU usage
-RAM usage
-Disk IO
-Network
-```
-
----
-
-# 12. Scheduled Jobs
-
-Using APScheduler:
-
-Every 5 seconds:
-
-```
-collect system metrics
-```
-
-Every minute:
-
-```
-collect mysql status
-collect processlist
-```
-
-Every hour:
-
-```
-analyze queries
-generate recommendations
-```
-
-Daily:
-
-```
-generate HTML report
-```
-
----
-
-# 13. Report Generator
-
-Generate:
-
-```
-mysql-report-2026-08-10.html
-```
-
-Include:
-
-## Summary
-
-```
-Database Health Score: 82/100
-```
-
-## Problems
-
-```
-5 slow queries detected
-
-3 missing indexes
-
-Memory pressure detected
-```
-
-## Recommendations
-
-```
-Increase innodb_buffer_pool_size
-
-Add index:
-
-table.column
-```
-
----
-
-# 14. Security Requirements
-
-* Never store database passwords plain text
-* Encrypt credentials
-* Read from environment variables
-* Role-based API authentication
-* Query masking for sensitive data
-
----
-
-# 15. Deployment
-
-Support:
-
-Docker:
-
-```
+```bash
 docker compose up -d
 ```
 
-Services:
+The API listens on `http://localhost:8000`. Configuration is passed through
+environment variables (set in `.env` or the compose `environment` block).
 
+---
+
+## API Endpoints
+
+All `/api/*` endpoints require the API key via the `X-API-Key` header (unless
+`API_TOKEN` is left at its default `changeme-token`).
+
+| Endpoint | Description |
+|---|---|
+| `/api/overview` | server + latest system metrics + counts |
+| `/api/queries` | most expensive + worst latency queries |
+| `/api/server-health` | recent system metric series |
+| `/api/alerts` | recent alerts |
+| `/api/recommendations` | recent recommendations |
+| `/api/reports` | generated report registry |
+
+---
+
+## Tests
+
+```bash
+pip install -r requirements.txt   # includes pytest
+pytest
 ```
-mysql-profiler-api
-mysql-profiler-worker
-mysql-profiler-db
-```
+
+The suite uses a stub MySQL connector, so no live database is required.
 
 ---
 
-# 16. Future Features
+## Reports
 
-Prepare architecture for:
-
-* Multiple MySQL servers
-* Cloud monitoring
-* AI query optimization
-* Automatic index suggestion
-* Query regression detection
-* Before/after tuning comparison
-* Capacity planning
+A daily HTML report is generated at `reports/mysql-report-YYYY-MM-DD.html`
+(default schedule: 02:05 UTC). It includes a 0–100 health score, a problem
+summary, and charts.
 
 ---
 
-# Initial MVP Development Order
+## Configuration Reference
 
-Build in this order:
-
-1. System metrics collector
-2. MySQL status collector
-3. Slow query parser
-4. SQLite storage
-5. Query ranking engine
-6. HTML report
-7. FastAPI dashboard
-8. Alert system
-9. AI recommendations
-
----
-
-This design will become similar to a lightweight combination of **Percona Monitoring and Management + MySQLTuner + custom ERP performance analytics**, but tailored for your MariaDB/ERP environment.
+All settings are read from environment variables (via `.env`). See
+[.env.example](.env.example) for the full list, including alert thresholds
+(`ALERT_CPU_HIGH`, `ALERT_MEM_AVAIL_LOW`, `ALERT_DISK_HIGH`,
+`ALERT_SLOW_QUERY_MS`, `ALERT_DEADLOCK_TRIGGER`) and collection cadences
+(`SYSTEM_INTERVAL`, `MYSQL_INTERVAL`, `ANALYZE_INTERVAL`, `REPORT_HOUR`).

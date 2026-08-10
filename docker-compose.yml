@@ -1,0 +1,42 @@
+# MySQL Profiler — default runs the API (which embeds the scheduler + collectors).
+# Use `api` alone to avoid double collection. A separate `worker` is provided for
+# scale-out but must NOT run against the same server/db as `api` simultaneously.
+services:
+  api:
+    build: .
+    container_name: mysql-profiler-api
+    ports:
+      - "8000:8000"
+    environment:
+      SQLITE_PATH: /app/data/monitor.db
+      REPORT_DIR: /app/reports
+      MYSQL_HOST: ${MYSQL_HOST:-localhost}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER:-monitor}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeme}
+      API_TOKEN: ${API_TOKEN:-changeme-token}
+    volumes:
+      - monitor-db:/app/data
+      - monitor-reports:/app/reports
+    restart: unless-stopped
+
+  # Optional dedicated collector worker (no HTTP). Run EITHER api OR worker,
+  # never both against the same monitored MySQL server.
+  # worker:
+  #   build: .
+  #   command: ["python", "run_worker.py"]
+  #   environment:
+  #     SQLITE_PATH: /app/data/monitor.db
+  #     REPORT_DIR: /app/reports
+  #     MYSQL_HOST: ${MYSQL_HOST:-localhost}
+  #     MYSQL_PORT: ${MYSQL_PORT:-3306}
+  #     MYSQL_USER: ${MYSQL_USER:-monitor}
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeme}
+  #   volumes:
+  #     - monitor-db:/app/data
+  #     - monitor-reports:/app/reports
+  #   restart: unless-stopped
+
+volumes:
+  monitor-db:
+  monitor-reports:

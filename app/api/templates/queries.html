@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Queries — MySQL Profiler{% endblock %}
+{% block content %}
+<h2>Query Performance</h2>
+
+<div class="panel"><h3>Most Expensive Queries</h3><div id="expensive-chart"></div></div>
+
+<div class="panel">
+    <h3>Worst Latency</h3>
+    {% if latency %}
+    <table>
+        <tr><th>Query</th><th>Calls</th><th>Total (ms)</th><th>Avg (ms)</th>
+            <th>Rows Examined</th><th>Rows Sent</th></tr>
+        {% for q in latency %}
+        <tr><td class="mono">{{ q.query[:90] }}</td><td>{{ q.calls }}</td>
+            <td>{{ q.total_ms }}</td><td>{{ q.avg_ms }}</td>
+            <td>{{ q.rows_examined }}</td><td>{{ q.rows_sent }}</td></tr>
+        {% endfor %}
+    </table>
+    {% else %}<p>No query data collected yet.</p>{% endif %}
+</div>
+
+{% if chart %}
+<script>
+    const chart = {{ chart | safe }};
+    Plotly.newPlot('expensive-chart', chart.data, chart.layout, {responsive: true});
+</script>
+{% endif %}
+{% endblock %}

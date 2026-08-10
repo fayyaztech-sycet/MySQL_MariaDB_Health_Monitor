@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Server Health — MySQL Profiler{% endblock %}
+{% block content %}
+<h2>Server Health</h2>
+
+<div class="panel"><h3>CPU Usage</h3><div id="cpu"></div></div>
+<div class="panel"><h3>RAM Used</h3><div id="memory"></div></div>
+<div class="panel"><h3>Disk Used</h3><div id="disk"></div></div>
+<div class="panel"><h3>Network</h3><div id="network"></div></div>
+
+<script>
+const charts = {
+    cpu: {{ charts.cpu | safe }},
+    memory: {{ charts.memory | safe }},
+    disk: {{ charts.disk | safe }},
+    network: {{ charts.network | safe }},
+};
+for (const [id, chart] of Object.entries(charts)) {
+    Plotly.newPlot(id, chart.data, chart.layout, {responsive: true});
+}
+</script>
+{% endblock %}
