@@ -2,14 +2,43 @@
 {% block title %}Dashboard — MySQL Profiler{% endblock %}
 {% block content %}
 
-<div class="flex items-center justify-between mb-4">
+<div class="flex items-center justify-between mb-4 flex-wrap gap-3">
     <h2 class="text-xl font-bold text-slate-100">Live Dashboard</h2>
-    <div class="flex items-center gap-2">
-        <span id="live-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-        <span id="live-label" class="text-sm text-emerald-400 font-medium">Live</span>
-        <span id="server-label" class="text-xs text-slate-500 ml-2"></span>
+    <div class="flex items-center gap-3 flex-wrap">
+        <!-- Time-range selector -->
+        <div id="range-toolbar" class="flex items-center gap-1 bg-slate-800/70 border border-slate-700 rounded-lg p-1">
+            <button class="range-btn active" data-range="live">Live</button>
+            <button class="range-btn" data-range="1">1h</button>
+            <button class="range-btn" data-range="2">2h</button>
+            <button class="range-btn" data-range="6">6h</button>
+            <button class="range-btn" data-range="12">12h</button>
+            <button class="range-btn" data-range="24">24h</button>
+            <button class="range-btn" data-range="72">3d</button>
+            <button class="range-btn" data-range="240">10d</button>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="live-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="live-label" class="text-sm text-emerald-400 font-medium">Live</span>
+            <span id="server-label" class="text-xs text-slate-500 ml-2"></span>
+        </div>
     </div>
 </div>
+
+<style>
+.range-btn {
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #94a3b8;
+    border-radius: 0.375rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.range-btn:hover { background: rgba(148,163,184,0.12); color: #e2e8f0; }
+.range-btn.active { background: #6366f1; color: #fff; }
+</style>
 
 <!-- KPI cards -->
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
@@ -56,29 +85,49 @@
 </div>
 
 <script>
-const MAX_PTS = 120;
 const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5e9', netOut: '#f43f5e', query: '#8b5cf6',
     load1: '#22d3ee', load5: '#a78bfa', load15: '#fbbf24' };
 let snap = {{ snapshot | tojson }};
 let series = snap.series || [];
 
-const LAYOUT = {
+// "live" → live WS mode (MAX_PTS rolling window); number → hours of history
+let currentRange = 'live';
+let historyRefreshTimer = null;
+
+const BASE_LAYOUT = {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
     font: { color: '#94a3b8' },
     margin: { l: 40, r: 10, t: 10, b: 30 },
-    xaxis: { showgrid: false, zeroline: false },
     yaxis: { showgrid: true, gridcolor: 'rgba(148,163,184,0.15)', zeroline: false },
     autosize: true,
 };
 const CONFIG = { displayModeBar: false, responsive: true };
-
 const SPLINE = { shape: 'spline', smoothing: 1.3 };
 let chartsReady = false;
 
-function ts(x) { return x.map(s => s.timestamp); }
-function mkLine(name, color, y, extra) {
-    return { x: ts(series), y, mode: 'lines', line: { color, width: 2, ...SPLINE }, name, ...(extra||{}) };
+// Build Plotly layout with x-axis formatting that suits the selected range.
+function makeLayout(hours) {
+    const xaxis = { showgrid: false, zeroline: false };
+    if (hours == null || hours === 'live') {
+        // live: no extra formatting needed, timestamps are ISO strings
+    } else if (hours <= 2) {
+        xaxis.tickformat = '%H:%M';
+    } else if (hours <= 48) {
+        xaxis.tickformat = '%b %d %H:%M';
+    } else {
+        xaxis.tickformat = '%b %d';
+    }
+    return Object.assign({}, BASE_LAYOUT, { xaxis });
+}
+
+function ts(arr) { return arr.map(s => s.timestamp); }
+
+function mkLine(name, color, arr, yFn, extra) {
+    return {
+        x: ts(arr), y: arr.map(yFn),
+        mode: 'lines', line: { color, width: 2, ...SPLINE }, name, ...(extra || {})
+    };
 }
 
 function updateKpis(s) {
@@ -102,22 +151,26 @@ function updateKpis(s) {
     a.className = 'text-2xl font-bold mt-1 ' + ((s.alerts_active || 0) > 0 ? 'text-red-400' : 'text-emerald-400');
 }
 
-function initCharts() {
-    Plotly.react('g-cpu',  [mkLine('CPU %', PALETTE.cpu, series.map(s => s.cpu))], LAYOUT, CONFIG);
+function initCharts(hours) {
+    chartsReady = false;
+    const layout = makeLayout(hours);
+    const yLayout = Object.assign({}, layout, { yaxis: { ...layout.yaxis, range: [0, 100] } });
+    Plotly.react('g-cpu',  [mkLine('CPU %',  PALETTE.cpu,  series, s => s.cpu)],  yLayout, CONFIG);
     Plotly.react('g-load', [
-        mkLine('1m',  PALETTE.load1,  series.map(s => s.load_avg)),
-        mkLine('5m',  PALETTE.load5,  series.map(s => s.load_avg_5)),
-        mkLine('15m', PALETTE.load15, series.map(s => s.load_avg_15)),
-    ], LAYOUT, CONFIG);
+        mkLine('1m',  PALETTE.load1,  series, s => s.load_avg),
+        mkLine('5m',  PALETTE.load5,  series, s => s.load_avg_5),
+        mkLine('15m', PALETTE.load15, series, s => s.load_avg_15),
+    ], layout, CONFIG);
     Plotly.react('g-mem', [
-        mkLine('RAM %',  PALETTE.mem, series.map(s => s.mem_pct)),
-        mkLine('Swap %', '#eab308',   series.map(s => s.swap_pct), { line: { color: '#eab308', width: 2, dash: 'dash', ...SPLINE } }),
-    ], LAYOUT, CONFIG);
-    Plotly.react('g-disk', [mkLine('Disk %', PALETTE.disk, series.map(s => s.disk_pct))], LAYOUT, CONFIG);
+        mkLine('RAM %',  PALETTE.mem, series, s => s.mem_pct),
+        mkLine('Swap %', '#eab308',   series, s => s.swap_pct,
+            { line: { color: '#eab308', width: 2, dash: 'dash', ...SPLINE } }),
+    ], yLayout, CONFIG);
+    Plotly.react('g-disk', [mkLine('Disk %', PALETTE.disk, series, s => s.disk_pct)], yLayout, CONFIG);
     Plotly.react('g-net', [
-        mkLine('In',  PALETTE.netIn,  series.map(s => s.net_in)),
-        mkLine('Out', PALETTE.netOut, series.map(s => s.net_out)),
-    ], LAYOUT, CONFIG);
+        mkLine('In',  PALETTE.netIn,  series, s => s.net_in),
+        mkLine('Out', PALETTE.netOut, series, s => s.net_out),
+    ], layout, CONFIG);
     redrawStatic();
     chartsReady = true;
 }
@@ -127,29 +180,82 @@ function redrawStatic() {
     Plotly.react('g-queries', [{
         x: q.map(r => r.total_ms), y: q.map(r => r.query.slice(0, 28)), type: 'bar', orientation: 'h',
         marker: { color: PALETTE.query },
-    }], Object.assign({}, LAYOUT, { yaxis: { autorange: 'reversed', showgrid: false } }), CONFIG);
+    }], Object.assign({}, BASE_LAYOUT, { yaxis: { autorange: 'reversed', showgrid: false } }), CONFIG);
     const a = snap.alerts_active || 0;
     Plotly.react('g-alerts', [{
         values: [a, Math.max(1, 10 - a)], labels: ['Active', 'OK'], type: 'pie', hole: .6,
         marker: { colors: ['#f43f5e', '#1f2937'] },
-    }], Object.assign({}, LAYOUT, { showlegend: false }), CONFIG);
+    }], Object.assign({}, BASE_LAYOUT, { showlegend: false }), CONFIG);
 }
 
 function appendPoint(pt) {
-    if (!chartsReady) return;
+    if (!chartsReady || currentRange !== 'live') return;
     const t = pt.timestamp;
-    // extend time-series charts by one point, drop oldest if over MAX_PTS
+    const MAX_PTS = 120;
     const maxPts = { max_points: MAX_PTS };
-    Plotly.extendTraces('g-cpu',  { x: [[t]], y: [[pt.cpu]] },   [0], maxPts);
+    Plotly.extendTraces('g-cpu',  { x: [[t]], y: [[pt.cpu]] }, [0], maxPts);
     Plotly.extendTraces('g-load', { x: [[t],[t],[t]], y: [[pt.load_avg],[pt.load_avg_5],[pt.load_avg_15]] }, [0,1,2], maxPts);
-    const memPct  = pt.mem_total  ? pt.mem_used  / pt.mem_total  * 100 : null;
-    const swapPct = pt.mem_total  ? (pt.swap_used||0) / pt.mem_total * 100 : null;
+    const memPct  = pt.mem_total ? pt.mem_used / pt.mem_total * 100 : null;
+    const swapPct = pt.mem_total ? (pt.swap_used || 0) / pt.mem_total * 100 : null;
     Plotly.extendTraces('g-mem',  { x: [[t],[t]], y: [[memPct],[swapPct]] }, [0,1], maxPts);
     const diskPct = pt.disk_total ? pt.disk_used / pt.disk_total * 100 : null;
     Plotly.extendTraces('g-disk', { x: [[t]], y: [[diskPct]] }, [0], maxPts);
     Plotly.extendTraces('g-net',  { x: [[t],[t]], y: [[pt.net_in],[pt.net_out]] }, [0,1], maxPts);
 }
 
+// Fetch history for a given number of hours and redraw all time-series charts.
+async function loadHistory(hours) {
+    const from = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+    // request up to 10 000 points; API returns newest-last
+    const resp = await fetch(`/api/system?from=${encodeURIComponent(from)}&limit=10000`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    series = data;
+    initCharts(hours);
+}
+
+// Schedule a periodic history refresh for non-live modes (every 60s).
+function startHistoryRefresh(hours) {
+    clearInterval(historyRefreshTimer);
+    historyRefreshTimer = setInterval(() => loadHistory(hours), 60000);
+}
+
+function setLiveMode() {
+    clearInterval(historyRefreshTimer);
+    historyRefreshTimer = null;
+    currentRange = 'live';
+    series = snap.series || [];
+    initCharts('live');
+    // update indicator
+    document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+    document.getElementById('live-label').textContent = 'Live';
+    document.getElementById('live-label').className = 'text-sm text-emerald-400 font-medium';
+}
+
+function setHistoryMode(hours) {
+    currentRange = hours;
+    // indicate paused live
+    document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-slate-500';
+    document.getElementById('live-label').textContent = 'History';
+    document.getElementById('live-label').className = 'text-sm text-slate-400 font-medium';
+    loadHistory(hours).then(() => startHistoryRefresh(hours));
+}
+
+// Wire up range buttons
+document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const range = btn.dataset.range;
+        if (range === 'live') {
+            setLiveMode();
+        } else {
+            setHistoryMode(parseInt(range, 10));
+        }
+    });
+});
+
+// WebSocket live feed
 function connectWs() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -157,19 +263,21 @@ function connectWs() {
         const s = JSON.parse(e.data);
         snap = s;
         updateKpis(s);
-        if (s.latest) {
+        if (currentRange === 'live' && s.latest) {
             series.push(s.latest);
-            if (series.length > MAX_PTS) series.shift();
+            if (series.length > 120) series.shift();
             appendPoint(s.latest);
         }
-        // only redraw slow/static panels (queries + alerts) occasionally
         redrawStatic();
     };
-    ws.onclose = () => { chartsReady = false; setTimeout(connectWs, 3000); };
+    ws.onclose = () => {
+        chartsReady = false;
+        setTimeout(connectWs, 3000);
+    };
 }
 
 updateKpis(snap);
-initCharts();
+initCharts('live');
 connectWs();
 </script>
 {% endblock %}
