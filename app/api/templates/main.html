@@ -16,6 +16,36 @@
             <button class="range-btn" data-range="72">3d</button>
             <button class="range-btn" data-range="240">10d</button>
         </div>
+        <!-- Timezone selector -->
+        <select id="tz-select" title="Display timezone"
+            class="bg-slate-800/70 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <option value="local">Browser local</option>
+            <option value="UTC">UTC</option>
+            <optgroup label="Americas">
+                <option value="America/New_York">New York (ET)</option>
+                <option value="America/Chicago">Chicago (CT)</option>
+                <option value="America/Denver">Denver (MT)</option>
+                <option value="America/Los_Angeles">Los Angeles (PT)</option>
+                <option value="America/Sao_Paulo">São Paulo (BRT)</option>
+            </optgroup>
+            <optgroup label="Europe">
+                <option value="Europe/London">London (GMT/BST)</option>
+                <option value="Europe/Paris">Paris (CET)</option>
+                <option value="Europe/Berlin">Berlin (CET)</option>
+                <option value="Europe/Moscow">Moscow (MSK)</option>
+            </optgroup>
+            <optgroup label="Asia / Pacific">
+                <option value="Asia/Dubai">Dubai (GST)</option>
+                <option value="Asia/Karachi">Karachi (PKT)</option>
+                <option value="Asia/Kolkata">Kolkata (IST)</option>
+                <option value="Asia/Dhaka">Dhaka (BST)</option>
+                <option value="Asia/Bangkok">Bangkok (ICT)</option>
+                <option value="Asia/Shanghai">Shanghai (CST)</option>
+                <option value="Asia/Tokyo">Tokyo (JST)</option>
+                <option value="Asia/Seoul">Seoul (KST)</option>
+                <option value="Australia/Sydney">Sydney (AEDT)</option>
+            </optgroup>
+        </select>
         <div class="flex items-center gap-2">
             <span id="live-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span id="live-label" class="text-sm text-emerald-400 font-medium">Live</span>
@@ -38,6 +68,7 @@
 }
 .range-btn:hover { background: rgba(148,163,184,0.12); color: #e2e8f0; }
 .range-btn.active { background: #6366f1; color: #fff; }
+#tz-select option, #tz-select optgroup { background: #1e293b; color: #cbd5e1; }
 </style>
 
 <!-- KPI cards -->
@@ -90,9 +121,43 @@ const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5
 let snap = {{ snapshot | tojson }};
 let series = snap.series || [];
 
-// "live" → live WS mode (MAX_PTS rolling window); number → hours of history
 let currentRange = 'live';
 let historyRefreshTimer = null;
+
+// --- Timezone handling -------------------------------------------------------
+// DB stores naive UTC ISO strings (no Z / offset). We treat them as UTC and
+// convert to the user-selected display timezone for all chart x values.
+
+let currentTz = 'local'; // 'local' | IANA string
+
+function tzLabel() {
+    if (currentTz === 'local') return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return currentTz;
+}
+
+// Convert a naive UTC ISO string to a Date shifted so that Plotly (which
+// interprets Date objects as local time) displays the correct wall-clock time
+// for the chosen timezone.
+function toTzDate(isoUtc) {
+    // Append Z so the browser parses it as UTC (DB strings have no offset)
+    const utcMs = new Date(isoUtc.endsWith('Z') ? isoUtc : isoUtc + 'Z').getTime();
+    if (currentTz === 'local') return new Date(utcMs);
+    // Get offset of target TZ at this moment
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: currentTz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date(utcMs));
+    const p = {};
+    parts.forEach(({ type, value }) => { p[type] = value; });
+    // Build a local-time Date that when rendered equals the target-tz time
+    return new Date(`${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`);
+}
+
+function ts(arr) { return arr.map(s => toTzDate(s.timestamp)); }
+
+// --- Layout / chart helpers --------------------------------------------------
 
 const BASE_LAYOUT = {
     paper_bgcolor: 'rgba(0,0,0,0)',
@@ -106,11 +171,10 @@ const CONFIG = { displayModeBar: false, responsive: true };
 const SPLINE = { shape: 'spline', smoothing: 1.3 };
 let chartsReady = false;
 
-// Build Plotly layout with x-axis formatting that suits the selected range.
 function makeLayout(hours) {
     const xaxis = { showgrid: false, zeroline: false };
-    if (hours == null || hours === 'live') {
-        // live: no extra formatting needed, timestamps are ISO strings
+    if (hours === 'live' || hours == null) {
+        xaxis.tickformat = '%H:%M:%S';
     } else if (hours <= 2) {
         xaxis.tickformat = '%H:%M';
     } else if (hours <= 48) {
@@ -121,14 +185,14 @@ function makeLayout(hours) {
     return Object.assign({}, BASE_LAYOUT, { xaxis });
 }
 
-function ts(arr) { return arr.map(s => s.timestamp); }
-
 function mkLine(name, color, arr, yFn, extra) {
     return {
         x: ts(arr), y: arr.map(yFn),
         mode: 'lines', line: { color, width: 2, ...SPLINE }, name, ...(extra || {})
     };
 }
+
+// --- KPIs --------------------------------------------------------------------
 
 function updateKpis(s) {
     const l = s.latest;
@@ -150,6 +214,8 @@ function updateKpis(s) {
     a.textContent = s.alerts_active ?? 0;
     a.className = 'text-2xl font-bold mt-1 ' + ((s.alerts_active || 0) > 0 ? 'text-red-400' : 'text-emerald-400');
 }
+
+// --- Chart draw / update -----------------------------------------------------
 
 function initCharts(hours) {
     chartsReady = false;
@@ -190,7 +256,7 @@ function redrawStatic() {
 
 function appendPoint(pt) {
     if (!chartsReady || currentRange !== 'live') return;
-    const t = pt.timestamp;
+    const t = toTzDate(pt.timestamp);
     const MAX_PTS = 120;
     const maxPts = { max_points: MAX_PTS };
     Plotly.extendTraces('g-cpu',  { x: [[t]], y: [[pt.cpu]] }, [0], maxPts);
@@ -203,22 +269,22 @@ function appendPoint(pt) {
     Plotly.extendTraces('g-net',  { x: [[t],[t]], y: [[pt.net_in],[pt.net_out]] }, [0,1], maxPts);
 }
 
-// Fetch history for a given number of hours and redraw all time-series charts.
+// --- History fetch -----------------------------------------------------------
+
 async function loadHistory(hours) {
     const from = new Date(Date.now() - hours * 3600 * 1000).toISOString();
-    // request up to 10 000 points; API returns newest-last
     const resp = await fetch(`/api/system?from=${encodeURIComponent(from)}&limit=10000`);
     if (!resp.ok) return;
-    const data = await resp.json();
-    series = data;
+    series = await resp.json();
     initCharts(hours);
 }
 
-// Schedule a periodic history refresh for non-live modes (every 60s).
 function startHistoryRefresh(hours) {
     clearInterval(historyRefreshTimer);
     historyRefreshTimer = setInterval(() => loadHistory(hours), 60000);
 }
+
+// --- Mode switching ----------------------------------------------------------
 
 function setLiveMode() {
     clearInterval(historyRefreshTimer);
@@ -226,7 +292,6 @@ function setLiveMode() {
     currentRange = 'live';
     series = snap.series || [];
     initCharts('live');
-    // update indicator
     document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
     document.getElementById('live-label').textContent = 'Live';
     document.getElementById('live-label').className = 'text-sm text-emerald-400 font-medium';
@@ -234,28 +299,35 @@ function setLiveMode() {
 
 function setHistoryMode(hours) {
     currentRange = hours;
-    // indicate paused live
     document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-slate-500';
     document.getElementById('live-label').textContent = 'History';
     document.getElementById('live-label').className = 'text-sm text-slate-400 font-medium';
     loadHistory(hours).then(() => startHistoryRefresh(hours));
 }
 
-// Wire up range buttons
+// --- Event wiring ------------------------------------------------------------
+
 document.querySelectorAll('.range-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const range = btn.dataset.range;
-        if (range === 'live') {
-            setLiveMode();
-        } else {
-            setHistoryMode(parseInt(range, 10));
-        }
+        if (range === 'live') { setLiveMode(); } else { setHistoryMode(parseInt(range, 10)); }
     });
 });
 
-// WebSocket live feed
+document.getElementById('tz-select').addEventListener('change', function() {
+    currentTz = this.value;
+    // Redraw with same data in new timezone
+    if (currentRange === 'live') {
+        initCharts('live');
+    } else {
+        initCharts(currentRange);
+    }
+});
+
+// --- WebSocket ---------------------------------------------------------------
+
 function connectWs() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -270,11 +342,18 @@ function connectWs() {
         }
         redrawStatic();
     };
-    ws.onclose = () => {
-        chartsReady = false;
-        setTimeout(connectWs, 3000);
-    };
+    ws.onclose = () => { chartsReady = false; setTimeout(connectWs, 3000); };
 }
+
+// --- Boot --------------------------------------------------------------------
+// Pre-select browser timezone in the dropdown if it matches one of our options
+(function() {
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const sel = document.getElementById('tz-select');
+    for (const opt of sel.options) {
+        if (opt.value === browserTz) { sel.value = browserTz; currentTz = browserTz; break; }
+    }
+})();
 
 updateKpis(snap);
 initCharts('live');
