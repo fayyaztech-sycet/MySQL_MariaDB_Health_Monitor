@@ -17,9 +17,12 @@
     <div class="max-w-6xl mx-auto px-4">
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
             <span class="font-bold text-indigo-400 text-lg">🖥 MySQL Profiler</span>
+            <!-- Server clock -->
+            <span id="nav-clock" class="text-xs text-slate-400 font-mono tabular-nums"></span>
             <div class="flex flex-wrap items-center gap-x-1 gap-y-1 ml-auto">
                 <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium {% if request.url.path == '/' %}bg-indigo-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">Dashboard</a>
                 <a href="/logs" class="px-3 py-1.5 rounded-md text-sm font-medium {% if request.url.path == '/logs' %}bg-indigo-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">Logs</a>
+                <a href="/logout" class="px-3 py-1.5 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100">Logout</a>
             </div>
         </div>
     </div>
@@ -32,5 +35,40 @@
 <footer class="max-w-6xl mx-auto px-4 py-6 text-center text-xs text-slate-500">
     MySQL Performance Monitoring &amp; Query Intelligence Platform
 </footer>
+
+<script>
+// Server clock — ticks every second using the browser's JS clock.
+// Timezone syncs with the dashboard's tz-select if on the dashboard page;
+// falls back to the browser local timezone otherwise.
+(function() {
+    function getClockTz() {
+        const sel = document.getElementById('tz-select');
+        if (sel && sel.value && sel.value !== 'local') return sel.value;
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+    function tick() {
+        const el = document.getElementById('nav-clock');
+        if (!el) return;
+        const tz = getClockTz();
+        const now = new Date();
+        try {
+            el.textContent = now.toLocaleTimeString('en-GB', {
+                timeZone: tz,
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+            }) + ' ' + new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+                .formatToParts(now).find(p => p.type === 'timeZoneName').value;
+        } catch (_) {
+            el.textContent = now.toLocaleTimeString();
+        }
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    // Re-sync when dashboard timezone selector changes
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.id === 'tz-select') tick();
+    });
+})();
+</script>
 </body>
 </html>

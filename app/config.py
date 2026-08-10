@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # --- API auth ---
     api_token: str = "changeme-token"
 
+    # --- Dashboard auth ---
+    dashboard_password_hash: str = ""   # bcrypt hash; empty = no password required
+    session_secret: str = "change-this-secret-key"  # used to sign session cookies
+
     # --- Paths ---
     report_dir: str = "reports"
 

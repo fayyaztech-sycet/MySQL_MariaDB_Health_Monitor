@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login — MySQL Profiler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>body { background-color: #0f172a; color: #e2e8f0; }</style>
+</head>
+<body class="min-h-screen flex items-center justify-center antialiased">
+<div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+        <span class="text-4xl">🖥</span>
+        <h1 class="mt-3 text-2xl font-bold text-slate-100">MySQL Profiler</h1>
+        <p class="mt-1 text-sm text-slate-400">Enter the dashboard password to continue</p>
+    </div>
+
+    {% if error %}
+    <div class="mb-4 rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-300">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login" class="rounded-xl bg-slate-800/70 border border-slate-700 p-6 shadow-xl">
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="password">Password</label>
+        <input
+            id="password" name="password" type="password" required autofocus
+            class="w-full rounded-lg bg-slate-900 border border-slate-600 text-slate-100 px-3 py-2 text-sm
+                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-500"
+            placeholder="Dashboard password"
+        >
+        <button type="submit"
+            class="mt-4 w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700
+                   text-white font-semibold text-sm py-2 transition-colors">
+            Sign in
+        </button>
+    </form>
+
+    <p class="mt-4 text-center text-xs text-slate-500">Session expires after 2 hours</p>
+</div>
+</body>
+</html>

@@ -11,6 +11,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 
@@ -59,6 +60,14 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     app = FastAPI(title="MySQL Profiler", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        max_age=7200,          # 2-hour session
+        session_cookie="sm_session",
+        https_only=False,      # allow http in dev
+        same_site="lax",
+    )
     app.include_router(router)
     return app
 

@@ -3,6 +3,7 @@
 Main dashboard (/) is a single page with all graphs, updated live over a
 WebSocket. The /logs page lists alerts with a date-range filter and a Live
 toggle. JSON endpoints under /api/* accept API-key auth.
+Dashboard HTML pages are protected by a session cookie (2-hour TTL).
 """
 from __future__ import annotations
 
@@ -10,8 +11,9 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+import bcrypt
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -30,6 +32,23 @@ router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+
+# --- Auth helpers -------------------------------------------------------------
+
+def _password_enabled() -> bool:
+    return bool(get_settings().dashboard_password_hash)
+
+
+def _session_ok(request: Request) -> bool:
+    return request.session.get("authenticated") is True
+
+
+def _require_session(request: Request):
+    """Redirect to /login if no valid session (only when password is set)."""
+    if _password_enabled() and not _session_ok(request):
+        return RedirectResponse("/login", status_code=302)
+    return None
 
 
 def require_key(request: Request):
@@ -134,6 +153,12 @@ def _snapshot(db: Session) -> dict:
 
 @router.websocket("/ws")
 async def ws_live(websocket: WebSocket):
+    # Protect WS with session cookie when password auth is enabled
+    if _password_enabled():
+        session = websocket.session  # Starlette populates this via SessionMiddleware
+        if not session.get("authenticated"):
+            await websocket.close(code=4403)
+            return
     await websocket.accept()
     factory = get_session_factory()
     try:
@@ -248,11 +273,40 @@ def api_reports(_: None = Depends(require_key), db: Session = Depends(get_db)):
 
 # --- Dashboard pages ---------------------------------------------------------
 
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if _session_ok(request):
+        return RedirectResponse("/", status_code=302)
+    return templates.TemplateResponse(request, "login.html", {"error": None})
+
+
+@router.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request, password: str = Form(...)):
+    settings = get_settings()
+    pw_hash = settings.dashboard_password_hash
+    if pw_hash and bcrypt.checkpw(password.encode(), pw_hash.encode()):
+        request.session["authenticated"] = True
+        return RedirectResponse("/", status_code=302)
+    return templates.TemplateResponse(request, "login.html", {"error": "Invalid password"}, status_code=401)
+
+
+@router.get("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=302)
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
+    redir = _require_session(request)
+    if redir is not None:
+        return redir
     return templates.TemplateResponse(request, "main.html", {"snapshot": _snapshot(db)})
 
 
 @router.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request):
+    redir = _require_session(request)
+    if redir is not None:
+        return redir
     return templates.TemplateResponse(request, "logs.html", {})
