@@ -91,6 +91,7 @@ def _recent_system(db: Session, limit: int = 120) -> list[dict]:
             "mem_used": r.mem_used,
             "mem_total": r.mem_total,
             "mem_pct": round(r.mem_used / r.mem_total * 100, 1) if r.mem_total else 0.0,
+            "swap_pct": round(r.swap_used / r.swap_total * 100, 1) if r.swap_total else 0.0,
             "disk_used": r.disk_used,
             "disk_total": r.disk_total,
             "disk_pct": round(r.disk_used / r.disk_total * 100, 1) if r.disk_total else 0.0,

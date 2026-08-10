@@ -90,7 +90,10 @@ function updateKpis(s) {
 }
 function redrawAll() {
     line('g-cpu', 'CPU %', PALETTE.cpu, s => s.cpu);
-    line('g-mem', 'Mem %', PALETTE.mem, s => s.mem_pct);
+    Plotly.react('g-mem', [
+        { x: ts(series), y: series.map(s => s.mem_pct), mode: 'lines', line: { color: PALETTE.mem, width: 2 }, name: 'RAM %' },
+        { x: ts(series), y: series.map(s => s.swap_pct), mode: 'lines', line: { color: '#eab308', width: 2, dash: 'dash' }, name: 'Swap %' },
+    ], LAYOUT, CONFIG);
     line('g-disk', 'Disk %', PALETTE.disk, s => s.disk_pct);
     const netIn = series.map(s => s.net_in), netOut = series.map(s => s.net_out);
     Plotly.react('g-net', [

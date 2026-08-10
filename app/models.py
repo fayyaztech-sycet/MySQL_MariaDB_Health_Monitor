@@ -68,6 +68,7 @@ class SystemMetrics(Base):
     mem_used: Mapped[int] = mapped_column(Integer, default=0)
     mem_avail: Mapped[int] = mapped_column(Integer, default=0)
     swap_used: Mapped[int] = mapped_column(Integer, default=0)
+    swap_total: Mapped[int] = mapped_column(Integer, default=0)
     disk_used: Mapped[int] = mapped_column(Integer, default=0)
     disk_total: Mapped[int] = mapped_column(Integer, default=0)
     disk_read: Mapped[int] = mapped_column(Integer, default=0)

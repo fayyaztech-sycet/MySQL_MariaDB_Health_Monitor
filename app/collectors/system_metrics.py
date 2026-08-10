@@ -47,6 +47,7 @@ def collect(session, conn=None) -> int:
         mem_used=vm.used,
         mem_avail=vm.available,
         swap_used=swap.used,
+        swap_total=swap.total,
         disk_used=du.used,
         disk_total=du.total,
         disk_read=dio.read_bytes if dio else 0,

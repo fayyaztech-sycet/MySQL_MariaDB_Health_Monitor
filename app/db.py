@@ -2,7 +2,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -10,6 +10,24 @@ from app.models import Base
 
 _engine = None
 _SessionLocal = None
+
+# (table, column, DDL) added to pre-existing tables that lack them.
+# create_all only creates new tables; these make existing dev DBs evolve.
+_COLUMN_MIGRATIONS = [
+    ("system_metrics", "swap_total", "INTEGER"),
+]
+
+
+def _apply_column_migrations(engine) -> None:
+    for table, column, ddl in _COLUMN_MIGRATIONS:
+        try:
+            with engine.begin() as conn:
+                cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))]
+                if column not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+        except Exception:
+            # table may not exist yet; create_all handles fresh DBs
+            pass
 
 
 def init_db(sqlite_path: str | None = None) -> None:
@@ -21,6 +39,7 @@ def init_db(sqlite_path: str | None = None) -> None:
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(_engine)
+    _apply_column_migrations(_engine)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
 
 
