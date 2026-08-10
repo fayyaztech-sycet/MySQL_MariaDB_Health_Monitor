@@ -12,10 +12,15 @@
 </div>
 
 <!-- KPI cards -->
-<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
         <div class="text-xs text-slate-400">CPU</div>
         <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-cpu">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Load</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-load">—</div>
+        <div class="text-xs text-slate-500 mt-1" id="kpi-load-sub"></div>
     </div>
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
         <div class="text-xs text-slate-400">Memory</div>
@@ -42,6 +47,7 @@
 <!-- Graphs: 2 per row, small -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">CPU Usage</h3><div id="g-cpu" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">System Load (1/5/15 min)</h3><div id="g-load" class="w-full h-48"></div></div>
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Memory Usage</h3><div id="g-mem" class="w-full h-48"></div></div>
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Disk Usage</h3><div id="g-disk" class="w-full h-48"></div></div>
     <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Network</h3><div id="g-net" class="w-full h-48"></div></div>
@@ -51,7 +57,8 @@
 
 <script>
 const MAX_PTS = 120;
-const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5e9', netOut: '#f43f5e', query: '#8b5cf6' };
+const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5e9', netOut: '#f43f5e', query: '#8b5cf6',
+    load1: '#22d3ee', load5: '#a78bfa', load15: '#fbbf24' };
 let snap = {{ snapshot | tojson }};
 let series = snap.series || [];
 
@@ -74,6 +81,8 @@ function updateKpis(s) {
     const l = s.latest;
     if (l) {
         document.getElementById('kpi-cpu').textContent = (l.cpu != null ? l.cpu.toFixed(1) : '—') + '%';
+        document.getElementById('kpi-load').textContent = l.load_avg != null ? l.load_avg.toFixed(2) : '—';
+        document.getElementById('kpi-load-sub').textContent = l.load_avg_15 != null ? '15m: ' + l.load_avg_15.toFixed(2) : '';
         const mp = l.mem_total ? (l.mem_used / l.mem_total * 100).toFixed(0) : '—';
         document.getElementById('kpi-mem').textContent = mp + '%';
         const dp = l.disk_total ? (l.disk_used / l.disk_total * 100).toFixed(0) : '—';
@@ -90,6 +99,11 @@ function updateKpis(s) {
 }
 function redrawAll() {
     line('g-cpu', 'CPU %', PALETTE.cpu, s => s.cpu);
+    Plotly.react('g-load', [
+        { x: ts(series), y: series.map(s => s.load_avg), mode: 'lines', line: { color: PALETTE.load1, width: 2 }, name: '1m' },
+        { x: ts(series), y: series.map(s => s.load_avg_5), mode: 'lines', line: { color: PALETTE.load5, width: 2 }, name: '5m' },
+        { x: ts(series), y: series.map(s => s.load_avg_15), mode: 'lines', line: { color: PALETTE.load15, width: 2 }, name: '15m' },
+    ], LAYOUT, CONFIG);
     Plotly.react('g-mem', [
         { x: ts(series), y: series.map(s => s.mem_pct), mode: 'lines', line: { color: PALETTE.mem, width: 2 }, name: 'RAM %' },
         { x: ts(series), y: series.map(s => s.swap_pct), mode: 'lines', line: { color: '#eab308', width: 2, dash: 'dash' }, name: 'Swap %' },

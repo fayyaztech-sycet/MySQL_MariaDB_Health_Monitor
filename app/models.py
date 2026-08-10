@@ -63,6 +63,8 @@ class SystemMetrics(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     cpu: Mapped[float] = mapped_column(Float, default=0.0)
     load_avg: Mapped[float] = mapped_column(Float, default=0.0)
+    load_avg_5: Mapped[float] = mapped_column(Float, default=0.0)
+    load_avg_15: Mapped[float] = mapped_column(Float, default=0.0)
     cpu_freq: Mapped[float | None] = mapped_column(Float, nullable=True)
     mem_total: Mapped[int] = mapped_column(Integer, default=0)
     mem_used: Mapped[int] = mapped_column(Integer, default=0)

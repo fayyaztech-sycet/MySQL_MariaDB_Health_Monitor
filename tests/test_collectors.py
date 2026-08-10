@@ -1,4 +1,4 @@
-from app.collectors import mysql_status, slow_queries, innodb
+from app.collectors import mysql_status, slow_queries, innodb, system_metrics
 from app.models import MySqlServer, QueryStats, SystemMetrics
 from sqlalchemy import select
 
@@ -76,3 +76,15 @@ def test_innodb_collect(session):
     text = "BUFFER POOL AND MEMORY\nModified db pages 7\nHistory list length 3\nPending writes: 1\nBuffer pool hit rate 990 / 1000"
     conn = FakeConn({"show engine innodb status": [{"Status": text}]})
     assert innodb.collect(session, conn) == 1
+
+
+def test_system_metrics_stores_load_averages(session):
+    """Load 1/5/15 min averages are persisted by the system collector."""
+    assert system_metrics.collect(session, conn=None) == 1
+    row = session.scalar(select(SystemMetrics).limit(1))
+    assert row is not None
+    # Values come from psutil.getloadavg(); all three must be filled.
+    for attr in ("load_avg", "load_avg_5", "load_avg_15"):
+        assert getattr(row, attr) is not None
+    # The 15-min average is the smoothest and should be >= 0.
+    assert row.load_avg_15 >= 0.0

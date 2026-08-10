@@ -25,6 +25,29 @@
     <div id="summary-chart" class="w-full h-56"></div>
 </div>
 
+<!-- System load history -->
+<div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3 mb-6">
+    <h3 class="text-xs font-semibold text-slate-300 mb-1">System Load History (1/5/15 min)</h3>
+    <div id="load-chart" class="w-full h-64"></div>
+</div>
+
+<!-- System load log table -->
+<div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4 mb-6">
+    <h3 class="text-sm font-semibold text-slate-200 mb-3">System Load Log</h3>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead><tr class="text-left text-slate-400">
+                <th class="py-2 pr-3 font-medium">Time</th><th class="py-2 pr-3 font-medium">Load 1m</th>
+                <th class="py-2 pr-3 font-medium">Load 5m</th><th class="py-2 pr-3 font-medium">Load 15m</th>
+                <th class="py-2 font-medium">CPU %</th>
+            </tr></thead>
+            <tbody id="load-body">
+                <tr><td colspan="5" class="py-6 text-center text-slate-500">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <!-- Alerts table -->
 <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
     <h3 class="text-sm font-semibold text-slate-200 mb-3">Log Entries <span id="count" class="text-slate-500 font-normal text-xs"></span></h3>
@@ -48,6 +71,7 @@ const LAYOUT = { paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
     xaxis: { showgrid: false, zeroline: false },
     yaxis: { showgrid: true, gridcolor: 'rgba(148,163,184,0.15)', zeroline: false } };
 const CONFIG = { displayModeBar: false, responsive: true };
+const LOAD_COLORS = { l1: '#22d3ee', l5: '#a78bfa', l15: '#fbbf24' };
 let live = true;
 let liveTimer = null;
 
@@ -85,6 +109,37 @@ function renderSummary(rows) {
     Plotly.react('summary-chart', data, Object.assign({}, LAYOUT, { barmode: 'stack' }), CONFIG);
 }
 
+function renderLoad(rows) {
+    const x = rows.map(r => r.timestamp);
+    Plotly.react('load-chart', [
+        { x, y: rows.map(r => r.load_avg), mode: 'lines', name: '1m', line: { color: LOAD_COLORS.l1, width: 2 } },
+        { x, y: rows.map(r => r.load_avg_5), mode: 'lines', name: '5m', line: { color: LOAD_COLORS.l5, width: 2 } },
+        { x, y: rows.map(r => r.load_avg_15), mode: 'lines', name: '15m', line: { color: LOAD_COLORS.l15, width: 2 } },
+    ], LAYOUT, CONFIG);
+
+    const body = document.getElementById('load-body');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-500">No data in this range.</td></tr>';
+        return;
+    }
+    // Show the most recent readings first, most-recent on top.
+    body.innerHTML = rows.slice().reverse().map(r => `
+        <tr class="border-t border-slate-700">
+            <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${new Date(r.timestamp).toLocaleString()}</td>
+            <td class="py-2 pr-3 text-slate-300">${r.load_avg != null ? r.load_avg.toFixed(2) : '—'}</td>
+            <td class="py-2 pr-3 text-slate-300">${r.load_avg_5 != null ? r.load_avg_5.toFixed(2) : '—'}</td>
+            <td class="py-2 pr-3 text-slate-300">${r.load_avg_15 != null ? r.load_avg_15.toFixed(2) : '—'}</td>
+            <td class="py-2 text-slate-300">${r.cpu != null ? r.cpu.toFixed(1) : '—'}</td>
+        </tr>`).join('');
+}
+
+async function fetchSystem() {
+    // Live: recent window; paused: the selected date range.
+    const params = live ? 'limit=120' : rangeParams();
+    const rows = await fetch('/api/system' + (params ? '?' + params : '')).then(r => r.json());
+    renderLoad(rows);
+}
+
 async function fetchAlerts() {
     const params = live ? '' : rangeParams();
     const [alerts, summary] = await Promise.all([
@@ -105,8 +160,9 @@ function setLive(on) {
     document.getElementById('to').disabled = on;
     document.getElementById('apply').disabled = on;
     if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
-    if (on) { liveTimer = setInterval(fetchAlerts, 5000); }
+    if (on) { liveTimer = setInterval(() => { fetchAlerts(); fetchSystem(); }, 5000); }
     fetchAlerts();
+    fetchSystem();
 }
 
 document.getElementById('apply').addEventListener('click', () => setLive(false));

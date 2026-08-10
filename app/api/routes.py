@@ -70,6 +70,8 @@ def _latest_system(db: Session) -> dict | None:
         "timestamp": _iso(row.timestamp),
         "cpu": row.cpu,
         "load_avg": row.load_avg,
+        "load_avg_5": row.load_avg_5,
+        "load_avg_15": row.load_avg_15,
         "mem_total": row.mem_total,
         "mem_used": row.mem_used,
         "mem_avail": row.mem_avail,
@@ -80,26 +82,30 @@ def _latest_system(db: Session) -> dict | None:
     }
 
 
+def _system_row(r) -> dict:
+    return {
+        "timestamp": _iso(r.timestamp),
+        "cpu": r.cpu,
+        "load_avg": r.load_avg,
+        "load_avg_5": r.load_avg_5,
+        "load_avg_15": r.load_avg_15,
+        "mem_used": r.mem_used,
+        "mem_total": r.mem_total,
+        "mem_pct": round(r.mem_used / r.mem_total * 100, 1) if r.mem_total else 0.0,
+        "swap_pct": round(r.swap_used / r.swap_total * 100, 1) if r.swap_total else 0.0,
+        "disk_used": r.disk_used,
+        "disk_total": r.disk_total,
+        "disk_pct": round(r.disk_used / r.disk_total * 100, 1) if r.disk_total else 0.0,
+        "net_in": r.net_in,
+        "net_out": r.net_out,
+    }
+
+
 def _recent_system(db: Session, limit: int = 120) -> list[dict]:
     rows = db.execute(
         select(SystemMetrics).order_by(SystemMetrics.timestamp.desc()).limit(limit)
     ).scalars().all()
-    return [
-        {
-            "timestamp": _iso(r.timestamp),
-            "cpu": r.cpu,
-            "mem_used": r.mem_used,
-            "mem_total": r.mem_total,
-            "mem_pct": round(r.mem_used / r.mem_total * 100, 1) if r.mem_total else 0.0,
-            "swap_pct": round(r.swap_used / r.swap_total * 100, 1) if r.swap_total else 0.0,
-            "disk_used": r.disk_used,
-            "disk_total": r.disk_total,
-            "disk_pct": round(r.disk_used / r.disk_total * 100, 1) if r.disk_total else 0.0,
-            "net_in": r.net_in,
-            "net_out": r.net_out,
-        }
-        for r in reversed(rows)
-    ]
+    return [_system_row(r) for r in reversed(rows)]
 
 
 def _query_rankings(db: Session, limit: int = 8) -> list[dict]:
@@ -166,6 +172,23 @@ def api_queries(limit: int = Query(20), _: None = Depends(require_key),
 @router.get("/api/server-health")
 def api_health(_: None = Depends(require_key), db: Session = Depends(get_db)):
     return {"system_metrics": _recent_system(db)}
+
+
+@router.get("/api/system")
+def api_system(from_: str = Query(None, alias="from"),
+               to_: str = Query(None, alias="to"),
+               limit: int = Query(2000, le=10000),
+               _: None = Depends(require_key), db: Session = Depends(get_db)):
+    """System metric history (incl. load averages) over a date range."""
+    stmt = select(SystemMetrics)
+    if from_ := _parse_dt(from_):
+        stmt = stmt.where(SystemMetrics.timestamp >= from_)
+    if to := _parse_dt(to_):
+        stmt = stmt.where(SystemMetrics.timestamp <= to)
+    rows = db.execute(
+        stmt.order_by(SystemMetrics.timestamp.desc()).limit(limit)
+    ).scalars().all()
+    return [_system_row(r) for r in reversed(rows)]
 
 
 def _parse_dt(value: str | None) -> datetime | None:

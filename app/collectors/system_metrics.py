@@ -26,7 +26,8 @@ def collect(session, conn=None) -> int:
     conn is accepted for interface uniformity; it is unused here.
     """
     cpu = psutil.cpu_percent(interval=None)
-    load = psutil.getloadavg()[0] if hasattr(psutil, "getloadavg") else 0.0
+    _loads = psutil.getloadavg() if hasattr(psutil, "getloadavg") else (0.0, 0.0, 0.0)
+    load1, load5, load15 = (_loads + (0.0, 0.0, 0.0))[:3]
     freq = None
     try:
         freq = psutil.cpu_freq().current if psutil.cpu_freq() else None
@@ -41,7 +42,9 @@ def collect(session, conn=None) -> int:
 
     row = SystemMetrics(
         cpu=cpu,
-        load_avg=round(load, 3),
+        load_avg=round(load1, 3),
+        load_avg_5=round(load5, 3),
+        load_avg_15=round(load15, 3),
         cpu_freq=freq,
         mem_total=vm.total,
         mem_used=vm.used,
