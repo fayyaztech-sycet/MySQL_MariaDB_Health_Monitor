@@ -73,10 +73,14 @@ const LAYOUT = {
 };
 const CONFIG = { displayModeBar: false, responsive: true };
 
+const SPLINE = { shape: 'spline', smoothing: 1.3 };
+let chartsReady = false;
+
 function ts(x) { return x.map(s => s.timestamp); }
-function line(div, name, color, get) {
-    Plotly.react(div, [{ x: ts(series), y: series.map(get), mode: 'lines', line: { color, width: 2 }, name }], LAYOUT, CONFIG);
+function mkLine(name, color, y, extra) {
+    return { x: ts(series), y, mode: 'lines', line: { color, width: 2, ...SPLINE }, name, ...(extra||{}) };
 }
+
 function updateKpis(s) {
     const l = s.latest;
     if (l) {
@@ -97,29 +101,33 @@ function updateKpis(s) {
     a.textContent = s.alerts_active ?? 0;
     a.className = 'text-2xl font-bold mt-1 ' + ((s.alerts_active || 0) > 0 ? 'text-red-400' : 'text-emerald-400');
 }
-function redrawAll() {
-    line('g-cpu', 'CPU %', PALETTE.cpu, s => s.cpu);
+
+function initCharts() {
+    Plotly.react('g-cpu',  [mkLine('CPU %', PALETTE.cpu, series.map(s => s.cpu))], LAYOUT, CONFIG);
     Plotly.react('g-load', [
-        { x: ts(series), y: series.map(s => s.load_avg), mode: 'lines', line: { color: PALETTE.load1, width: 2 }, name: '1m' },
-        { x: ts(series), y: series.map(s => s.load_avg_5), mode: 'lines', line: { color: PALETTE.load5, width: 2 }, name: '5m' },
-        { x: ts(series), y: series.map(s => s.load_avg_15), mode: 'lines', line: { color: PALETTE.load15, width: 2 }, name: '15m' },
+        mkLine('1m',  PALETTE.load1,  series.map(s => s.load_avg)),
+        mkLine('5m',  PALETTE.load5,  series.map(s => s.load_avg_5)),
+        mkLine('15m', PALETTE.load15, series.map(s => s.load_avg_15)),
     ], LAYOUT, CONFIG);
     Plotly.react('g-mem', [
-        { x: ts(series), y: series.map(s => s.mem_pct), mode: 'lines', line: { color: PALETTE.mem, width: 2 }, name: 'RAM %' },
-        { x: ts(series), y: series.map(s => s.swap_pct), mode: 'lines', line: { color: '#eab308', width: 2, dash: 'dash' }, name: 'Swap %' },
+        mkLine('RAM %',  PALETTE.mem, series.map(s => s.mem_pct)),
+        mkLine('Swap %', '#eab308',   series.map(s => s.swap_pct), { line: { color: '#eab308', width: 2, dash: 'dash', ...SPLINE } }),
     ], LAYOUT, CONFIG);
-    line('g-disk', 'Disk %', PALETTE.disk, s => s.disk_pct);
-    const netIn = series.map(s => s.net_in), netOut = series.map(s => s.net_out);
+    Plotly.react('g-disk', [mkLine('Disk %', PALETTE.disk, series.map(s => s.disk_pct))], LAYOUT, CONFIG);
     Plotly.react('g-net', [
-        { x: ts(series), y: netIn, mode: 'lines', line: { color: PALETTE.netIn, width: 2 }, name: 'In' },
-        { x: ts(series), y: netOut, mode: 'lines', line: { color: PALETTE.netOut, width: 2 }, name: 'Out' },
+        mkLine('In',  PALETTE.netIn,  series.map(s => s.net_in)),
+        mkLine('Out', PALETTE.netOut, series.map(s => s.net_out)),
     ], LAYOUT, CONFIG);
+    redrawStatic();
+    chartsReady = true;
+}
+
+function redrawStatic() {
     const q = (snap.expensive || []).slice(0, 8);
     Plotly.react('g-queries', [{
         x: q.map(r => r.total_ms), y: q.map(r => r.query.slice(0, 28)), type: 'bar', orientation: 'h',
         marker: { color: PALETTE.query },
     }], Object.assign({}, LAYOUT, { yaxis: { autorange: 'reversed', showgrid: false } }), CONFIG);
-    // active alerts panel: simple counter bars by severity
     const a = snap.alerts_active || 0;
     Plotly.react('g-alerts', [{
         values: [a, Math.max(1, 10 - a)], labels: ['Active', 'OK'], type: 'pie', hole: .6,
@@ -127,21 +135,41 @@ function redrawAll() {
     }], Object.assign({}, LAYOUT, { showlegend: false }), CONFIG);
 }
 
+function appendPoint(pt) {
+    if (!chartsReady) return;
+    const t = pt.timestamp;
+    // extend time-series charts by one point, drop oldest if over MAX_PTS
+    const maxPts = { max_points: MAX_PTS };
+    Plotly.extendTraces('g-cpu',  { x: [[t]], y: [[pt.cpu]] },   [0], maxPts);
+    Plotly.extendTraces('g-load', { x: [[t],[t],[t]], y: [[pt.load_avg],[pt.load_avg_5],[pt.load_avg_15]] }, [0,1,2], maxPts);
+    const memPct  = pt.mem_total  ? pt.mem_used  / pt.mem_total  * 100 : null;
+    const swapPct = pt.mem_total  ? (pt.swap_used||0) / pt.mem_total * 100 : null;
+    Plotly.extendTraces('g-mem',  { x: [[t],[t]], y: [[memPct],[swapPct]] }, [0,1], maxPts);
+    const diskPct = pt.disk_total ? pt.disk_used / pt.disk_total * 100 : null;
+    Plotly.extendTraces('g-disk', { x: [[t]], y: [[diskPct]] }, [0], maxPts);
+    Plotly.extendTraces('g-net',  { x: [[t],[t]], y: [[pt.net_in],[pt.net_out]] }, [0,1], maxPts);
+}
+
 function connectWs() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onmessage = (e) => {
         const s = JSON.parse(e.data);
-        if (s.latest) { series.push(s.latest); if (series.length > MAX_PTS) series.shift(); }
         snap = s;
         updateKpis(s);
-        redrawAll();
+        if (s.latest) {
+            series.push(s.latest);
+            if (series.length > MAX_PTS) series.shift();
+            appendPoint(s.latest);
+        }
+        // only redraw slow/static panels (queries + alerts) occasionally
+        redrawStatic();
     };
-    ws.onclose = () => { setTimeout(connectWs, 3000); };
+    ws.onclose = () => { chartsReady = false; setTimeout(connectWs, 3000); };
 }
 
 updateKpis(snap);
-redrawAll();
+initCharts();
 connectWs();
 </script>
 {% endblock %}
