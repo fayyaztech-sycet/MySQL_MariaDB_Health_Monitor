@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MySQL Profiler{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold text-slate-100">Live Dashboard</h2>
+    <div class="flex items-center gap-2">
+        <span id="live-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="live-label" class="text-sm text-emerald-400 font-medium">Live</span>
+        <span id="server-label" class="text-xs text-slate-500 ml-2"></span>
+    </div>
+</div>
+
+<!-- KPI cards -->
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">CPU</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-cpu">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Memory</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-mem">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Disk</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-disk">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Connections</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-conn">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Database</div>
+        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-db">—</div>
+    </div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
+        <div class="text-xs text-slate-400">Active Alerts</div>
+        <div class="text-2xl font-bold mt-1" id="kpi-alerts">—</div>
+    </div>
+</div>
+
+<!-- Graphs: 2 per row, small -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">CPU Usage</h3><div id="g-cpu" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Memory Usage</h3><div id="g-mem" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Disk Usage</h3><div id="g-disk" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Network</h3><div id="g-net" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Most Expensive Queries</h3><div id="g-queries" class="w-full h-48"></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Active Alerts</h3><div id="g-alerts" class="w-full h-48"></div></div>
+</div>
+
+<script>
+const MAX_PTS = 120;
+const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5e9', netOut: '#f43f5e', query: '#8b5cf6' };
+let snap = {{ snapshot | tojson }};
+let series = snap.series || [];
+
+const LAYOUT = {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: '#94a3b8' },
+    margin: { l: 40, r: 10, t: 10, b: 30 },
+    xaxis: { showgrid: false, zeroline: false },
+    yaxis: { showgrid: true, gridcolor: 'rgba(148,163,184,0.15)', zeroline: false },
+    autosize: true,
+};
+const CONFIG = { displayModeBar: false, responsive: true };
+
+function ts(x) { return x.map(s => s.timestamp); }
+function line(div, name, color, get) {
+    Plotly.react(div, [{ x: ts(series), y: series.map(get), mode: 'lines', line: { color, width: 2 }, name }], LAYOUT, CONFIG);
+}
+function updateKpis(s) {
+    const l = s.latest;
+    if (l) {
+        document.getElementById('kpi-cpu').textContent = (l.cpu != null ? l.cpu.toFixed(1) : '—') + '%';
+        const mp = l.mem_total ? (l.mem_used / l.mem_total * 100).toFixed(0) : '—';
+        document.getElementById('kpi-mem').textContent = mp + '%';
+        const dp = l.disk_total ? (l.disk_used / l.disk_total * 100).toFixed(0) : '—';
+        document.getElementById('kpi-disk').textContent = dp + '%';
+    }
+    if (s.server) {
+        document.getElementById('kpi-conn').textContent = (s.server.threads_connected ?? '—') + ' / ' + (s.server.max_connections ?? '');
+        document.getElementById('kpi-db').textContent = s.server.database_size_bytes ? (s.server.database_size_bytes / 1073741824).toFixed(2) + ' GB' : '—';
+        document.getElementById('server-label').textContent = s.server.version || '';
+    }
+    const a = document.getElementById('kpi-alerts');
+    a.textContent = s.alerts_active ?? 0;
+    a.className = 'text-2xl font-bold mt-1 ' + ((s.alerts_active || 0) > 0 ? 'text-red-400' : 'text-emerald-400');
+}
+function redrawAll() {
+    line('g-cpu', 'CPU %', PALETTE.cpu, s => s.cpu);
+    line('g-mem', 'Mem %', PALETTE.mem, s => s.mem_pct);
+    line('g-disk', 'Disk %', PALETTE.disk, s => s.disk_pct);
+    const netIn = series.map(s => s.net_in), netOut = series.map(s => s.net_out);
+    Plotly.react('g-net', [
+        { x: ts(series), y: netIn, mode: 'lines', line: { color: PALETTE.netIn, width: 2 }, name: 'In' },
+        { x: ts(series), y: netOut, mode: 'lines', line: { color: PALETTE.netOut, width: 2 }, name: 'Out' },
+    ], LAYOUT, CONFIG);
+    const q = (snap.expensive || []).slice(0, 8);
+    Plotly.react('g-queries', [{
+        x: q.map(r => r.total_ms), y: q.map(r => r.query.slice(0, 28)), type: 'bar', orientation: 'h',
+        marker: { color: PALETTE.query },
+    }], Object.assign({}, LAYOUT, { yaxis: { autorange: 'reversed', showgrid: false } }), CONFIG);
+    // active alerts panel: simple counter bars by severity
+    const a = snap.alerts_active || 0;
+    Plotly.react('g-alerts', [{
+        values: [a, Math.max(1, 10 - a)], labels: ['Active', 'OK'], type: 'pie', hole: .6,
+        marker: { colors: ['#f43f5e', '#1f2937'] },
+    }], Object.assign({}, LAYOUT, { showlegend: false }), CONFIG);
+}
+
+function connectWs() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (e) => {
+        const s = JSON.parse(e.data);
+        if (s.latest) { series.push(s.latest); if (series.length > MAX_PTS) series.shift(); }
+        snap = s;
+        updateKpis(s);
+        redrawAll();
+    };
+    ws.onclose = () => { setTimeout(connectWs, 3000); };
+}
+
+updateKpis(snap);
+redrawAll();
+connectWs();
+</script>
+{% endblock %}

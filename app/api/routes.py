@@ -1,28 +1,29 @@
-"""FastAPI routes: JSON API + dashboard HTML pages.
+"""FastAPI routes: JSON API + dashboard pages.
 
-API-key auth is enforced via a header middleware (X-API-Key) on /api/*
-endpoints. Dashboard HTML pages are served unauthenticated (for local/dev use).
+Main dashboard (/) is a single page with all graphs, updated live over a
+WebSocket. The /logs page lists alerts with a date-range filter and a Live
+toggle. JSON endpoints under /api/* accept API-key auth.
 """
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import get_db
+from app.db import get_db, get_session_factory
 from app.models import (
     Alert,
     MySqlServer,
     Recommendation,
     Report,
     SystemMetrics,
-    InnoDBMetrics,
-    QueryStats,
 )
 
 router = APIRouter()
@@ -39,10 +40,10 @@ def require_key(request: Request):
     return None
 
 
-# --- helpers ---------------------------------------------------------------
+# --- snapshot helpers (shared by initial render + WebSocket) -----------------
 
-def _server(session) -> dict | None:
-    row = session.scalar(select(MySqlServer).limit(1))
+def _server(db: Session) -> dict | None:
+    row = db.scalar(select(MySqlServer).limit(1))
     if row is None:
         return None
     return {
@@ -57,13 +58,16 @@ def _server(session) -> dict | None:
     }
 
 
-def _latest_system(session) -> dict | None:
-    row = session.scalar(
-        select(SystemMetrics).order_by(SystemMetrics.timestamp.desc()).limit(1)
-    )
+def _iso(dt) -> str | None:
+    return dt.isoformat() if dt is not None else None
+
+
+def _latest_system(db: Session) -> dict | None:
+    row = db.scalar(select(SystemMetrics).order_by(SystemMetrics.timestamp.desc()).limit(1))
     if row is None:
         return None
     return {
+        "timestamp": _iso(row.timestamp),
         "cpu": row.cpu,
         "load_avg": row.load_avg,
         "mem_total": row.mem_total,
@@ -73,22 +77,23 @@ def _latest_system(session) -> dict | None:
         "disk_total": row.disk_total,
         "net_in": row.net_in,
         "net_out": row.net_out,
-        "timestamp": row.timestamp,
     }
 
 
-def _recent_system(session, limit: int = 200) -> list[dict]:
-    rows = session.execute(
+def _recent_system(db: Session, limit: int = 120) -> list[dict]:
+    rows = db.execute(
         select(SystemMetrics).order_by(SystemMetrics.timestamp.desc()).limit(limit)
     ).scalars().all()
     return [
         {
-            "timestamp": r.timestamp,
+            "timestamp": _iso(r.timestamp),
             "cpu": r.cpu,
             "mem_used": r.mem_used,
             "mem_total": r.mem_total,
+            "mem_pct": round(r.mem_used / r.mem_total * 100, 1) if r.mem_total else 0.0,
             "disk_used": r.disk_used,
             "disk_total": r.disk_total,
+            "disk_pct": round(r.disk_used / r.disk_total * 100, 1) if r.disk_total else 0.0,
             "net_in": r.net_in,
             "net_out": r.net_out,
         }
@@ -96,32 +101,65 @@ def _recent_system(session, limit: int = 200) -> list[dict]:
     ]
 
 
-# --- JSON API --------------------------------------------------------------
+def _query_rankings(db: Session, limit: int = 8) -> list[dict]:
+    from app.analyzers.query_analyzer import most_expensive
+    rankings = most_expensive(db, limit)
+    for r in rankings:
+        r["last_seen"] = _iso(r.get("last_seen"))
+    return rankings
+
+
+def _active_alerts(db: Session) -> int:
+    return db.scalar(select(func.count(Alert.id)).where(Alert.active == True)) or 0  # noqa: E712
+
+
+def _snapshot(db: Session) -> dict:
+    return {
+        "server": _server(db),
+        "latest": _latest_system(db),
+        "series": _recent_system(db, 120),
+        "expensive": _query_rankings(db),
+        "alerts_active": _active_alerts(db),
+    }
+
+
+# --- WebSocket live updates --------------------------------------------------
+
+@router.websocket("/ws")
+async def ws_live(websocket: WebSocket):
+    await websocket.accept()
+    factory = get_session_factory()
+    try:
+        while True:
+            db = factory()
+            try:
+                payload = _snapshot(db)
+            finally:
+                db.close()
+            await websocket.send_json(payload)
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# --- JSON API ----------------------------------------------------------------
 
 @router.get("/api/overview")
 def api_overview(_: None = Depends(require_key), db: Session = Depends(get_db)):
-    server = _server(db)
-    sys = _latest_system(db)
-    slow_count = db.scalar(select(func.count(QueryStats.id)))
-    active_alerts = db.scalar(select(func.count(Alert.id)).where(Alert.active == True))  # noqa: E712
-    rec_count = db.scalar(select(func.count(Recommendation.id)))
-    return {
-        "server": server,
-        "system": sys,
-        "slow_query_records": slow_count,
-        "active_alerts": active_alerts,
-        "recommendations": rec_count,
-    }
+    return _snapshot(db)
 
 
 @router.get("/api/queries")
 def api_queries(limit: int = Query(20), _: None = Depends(require_key),
                 db: Session = Depends(get_db)):
     from app.analyzers.query_analyzer import most_expensive, worst_latency
-    return {
-        "most_expensive": most_expensive(db, limit),
-        "worst_latency": worst_latency(db, limit),
-    }
+    return {"most_expensive": most_expensive(db, limit),
+            "worst_latency": worst_latency(db, limit)}
 
 
 @router.get("/api/server-health")
@@ -129,30 +167,52 @@ def api_health(_: None = Depends(require_key), db: Session = Depends(get_db)):
     return {"system_metrics": _recent_system(db)}
 
 
+def _parse_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 @router.get("/api/alerts")
-def api_alerts(_: None = Depends(require_key), db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(Alert).order_by(Alert.created_at.desc()).limit(100)
-    ).all()
+def api_alerts(from_: str = Query(None, alias="from"),
+               to_: str = Query(None, alias="to"),
+               _: None = Depends(require_key), db: Session = Depends(get_db)):
+    stmt = select(Alert).order_by(Alert.created_at.desc()).limit(500)
+    if from_ := _parse_dt(from_):
+        stmt = stmt.where(Alert.created_at >= from_)
+    if to := _parse_dt(to_):
+        stmt = stmt.where(Alert.created_at <= to)
+    rows = db.scalars(stmt).all()
     return [
-        {"type": a.type, "severity": a.severity, "message": a.message,
+        {"id": a.id, "type": a.type, "severity": a.severity, "message": a.message,
          "value": a.value, "threshold": a.threshold, "active": a.active,
          "created_at": a.created_at}
         for a in rows
     ]
 
 
+@router.get("/api/alerts/summary")
+def api_alerts_summary(from_: str = Query(None, alias="from"),
+                       to_: str = Query(None, alias="to"),
+                       _: None = Depends(require_key), db: Session = Depends(get_db)):
+    stmt = (select(func.date(Alert.created_at).label("day"), Alert.severity,
+                   func.count(Alert.id).label("n"))
+            .group_by("day", Alert.severity).order_by("day"))
+    if from_ := _parse_dt(from_):
+        stmt = stmt.where(Alert.created_at >= from_)
+    if to := _parse_dt(to_):
+        stmt = stmt.where(Alert.created_at <= to)
+    return [{"day": r.day, "severity": r.severity, "count": r.n} for r in db.execute(stmt).all()]
+
+
 @router.get("/api/recommendations")
-def api_recommendations(_: None = Depends(require_key),
-                        db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(Recommendation).order_by(Recommendation.created_at.desc()).limit(100)
-    ).all()
-    return [
-        {"type": r.type, "title": r.title, "detail": r.detail,
-         "sql": r.sql, "severity": r.severity, "created_at": r.created_at}
-        for r in rows
-    ]
+def api_recommendations(_: None = Depends(require_key), db: Session = Depends(get_db)):
+    rows = db.scalars(select(Recommendation).order_by(Recommendation.created_at.desc()).limit(100)).all()
+    return [{"type": r.type, "title": r.title, "detail": r.detail,
+             "sql": r.sql, "severity": r.severity, "created_at": r.created_at} for r in rows]
 
 
 @router.get("/api/reports")
@@ -162,50 +222,13 @@ def api_reports(_: None = Depends(require_key), db: Session = Depends(get_db)):
              "created_at": r.created_at} for r in rows]
 
 
-# --- Dashboard HTML ---------------------------------------------------------
+# --- Dashboard pages ---------------------------------------------------------
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
-    server = _server(db)
-    sys = _latest_system(db)
-    active_alerts = db.scalars(
-        select(Alert).where(Alert.active == True).order_by(Alert.created_at.desc())  # noqa: E712
-    ).all()
-    recs = db.scalars(
-        select(Recommendation).order_by(Recommendation.created_at.desc()).limit(5)
-    ).all()
-    cpu_json = _recent_system(db)[-60:]
-    from app.reports.charts import line_timeseries, bar_ranking
-
-    chart = line_timeseries(cpu_json, "timestamp", [("CPU %", "cpu")], "CPU Usage")
-    return templates.TemplateResponse(
-        request, "overview.html",
-        {"server": server, "system": sys, "alerts": active_alerts,
-         "recommendations": recs, "cpu_chart": chart},
-    )
+    return templates.TemplateResponse(request, "main.html", {"snapshot": _snapshot(db)})
 
 
-@router.get("/dashboard/queries", response_class=HTMLResponse)
-def dashboard_queries(request: Request, db: Session = Depends(get_db)):
-    from app.analyzers.query_analyzer import most_expensive, worst_latency
-    from app.reports.charts import bar_ranking
-    expensive = most_expensive(db, 15)
-    latency = worst_latency(db, 15)
-    chart = bar_ranking(expensive, "query", "total_ms", "Most Expensive Queries (ms)")
-    return templates.TemplateResponse(
-        request, "queries.html",
-        {"expensive": expensive, "latency": latency, "chart": chart},
-    )
-
-
-@router.get("/dashboard/health", response_class=HTMLResponse)
-def dashboard_health(request: Request, db: Session = Depends(get_db)):
-    from app.reports.charts import line_timeseries
-    rows = _recent_system(db, 500)
-    charts = {
-        "cpu": line_timeseries(rows, "timestamp", [("CPU %", "cpu")], "CPU"),
-        "memory": line_timeseries(rows, "timestamp", [("Used", "mem_used")], "RAM Used (bytes)"),
-        "disk": line_timeseries(rows, "timestamp", [("Used", "disk_used")], "Disk Used (bytes)"),
-        "network": line_timeseries(rows, "timestamp", [("In", "net_in"), ("Out", "net_out")], "Network"),
-    }
-    return templates.TemplateResponse(request, "health.html", {"charts": charts})
+@router.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request):
+    return templates.TemplateResponse(request, "logs.html", {})
