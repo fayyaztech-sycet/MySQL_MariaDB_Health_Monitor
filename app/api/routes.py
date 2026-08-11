@@ -88,14 +88,18 @@ def _latest_system(db: Session) -> dict | None:
     return {
         "timestamp": _iso(row.timestamp),
         "cpu": row.cpu,
+        "cpu_per_core": list(row.cpu_per_core) if row.cpu_per_core else [],
         "load_avg": row.load_avg,
         "load_avg_5": row.load_avg_5,
         "load_avg_15": row.load_avg_15,
         "mem_total": row.mem_total,
         "mem_used": row.mem_used,
         "mem_avail": row.mem_avail,
+        "mem_pct": round(row.mem_used / row.mem_total * 100, 1) if row.mem_total else 0.0,
+        "swap_pct": round(row.swap_used / row.swap_total * 100, 1) if row.swap_total else 0.0,
         "disk_used": row.disk_used,
         "disk_total": row.disk_total,
+        "disk_pct": round(row.disk_used / row.disk_total * 100, 1) if row.disk_total else 0.0,
         "net_in": row.net_in,
         "net_out": row.net_out,
     }
@@ -105,6 +109,7 @@ def _system_row(r) -> dict:
     return {
         "timestamp": _iso(r.timestamp),
         "cpu": r.cpu,
+        "cpu_per_core": list(r.cpu_per_core) if r.cpu_per_core else [],
         "load_avg": r.load_avg,
         "load_avg_5": r.load_avg_5,
         "load_avg_15": r.load_avg_15,
@@ -139,6 +144,19 @@ def _active_alerts(db: Session) -> int:
     return db.scalar(select(func.count(Alert.id)).where(Alert.active == True)) or 0  # noqa: E712
 
 
+def _server_brief(db: Session) -> dict:
+    """Light per-tick server fields so connection/database tiles stay live."""
+    row = db.scalar(select(MySqlServer).limit(1))
+    if row is None:
+        return {"threads_connected": None, "max_connections": None,
+                "database_size_bytes": None}
+    return {
+        "threads_connected": row.threads_connected,
+        "max_connections": row.max_connections,
+        "database_size_bytes": row.database_size_bytes,
+    }
+
+
 def _snapshot(db: Session) -> dict:
     return {
         "server": _server(db),
@@ -161,15 +179,30 @@ async def ws_live(websocket: WebSocket):
             return
     await websocket.accept()
     factory = get_session_factory()
+
+    # One-time full snapshot so the client renders history immediately.
+    db = factory()
+    try:
+        snapshot = _snapshot(db)
+    finally:
+        db.close()
+    await websocket.send_json({"type": "init", "snapshot": snapshot})
+
+    # Incremental single-point updates every 1s (light payload, ~1s latency).
     try:
         while True:
             db = factory()
             try:
-                payload = _snapshot(db)
+                latest = _latest_system(db)
+                server_brief = _server_brief(db)
+                alerts_active = _active_alerts(db)
             finally:
                 db.close()
-            await websocket.send_json(payload)
-            await asyncio.sleep(2)
+            await websocket.send_json(
+                {"type": "update", "latest": latest, "server": server_brief,
+                 "alerts_active": alerts_active}
+            )
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass
     except Exception:

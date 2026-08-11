@@ -7,6 +7,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -62,6 +63,7 @@ class SystemMetrics(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cpu: Mapped[float] = mapped_column(Float, default=0.0)
+    cpu_per_core: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     load_avg: Mapped[float] = mapped_column(Float, default=0.0)
     load_avg_5: Mapped[float] = mapped_column(Float, default=0.0)
     load_avg_15: Mapped[float] = mapped_column(Float, default=0.0)

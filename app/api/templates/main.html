@@ -69,285 +69,600 @@
 .range-btn:hover { background: rgba(148,163,184,0.12); color: #e2e8f0; }
 .range-btn.active { background: #6366f1; color: #fff; }
 #tz-select option, #tz-select optgroup { background: #1e293b; color: #cbd5e1; }
+
+/* --- KPI tiles --- */
+.kpi-tile {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid #334155;
+    background: linear-gradient(160deg, rgba(30,41,59,0.85), rgba(15,23,42,0.6));
+    padding: 0.9rem 1rem 0.4rem;
+}
+.kpi-tile::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent, #6366f1);
+    border-radius: 0 3px 3px 0;
+}
+.kpi-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+.kpi-value { font-size: 1.7rem; font-weight: 800; line-height: 1.1; color: #f1f5f9; margin-top: 0.15rem; }
+.kpi-sub { font-size: 0.68rem; color: #64748b; margin-top: 0.1rem; }
+.kpi-spark { position: relative; width: 100%; height: 30px; margin-top: 0.35rem; }
+.kpi-spark canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+/* --- Chart cards --- */
+.chart-card {
+    border-radius: 0.75rem;
+    border: 1px solid #334155;
+    background: rgba(30,41,59,0.6);
+    padding: 0.9rem;
+}
+.chart-card h3 {
+    font-size: 0.75rem; font-weight: 600;
+    color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 0.4rem;
+}
+.chart-card .chart-box { position: relative; width: 100%; height: 250px; }
 </style>
 
-<!-- KPI cards -->
+<!-- KPI tiles -->
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">CPU</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-cpu">—</div>
+    <div class="kpi-tile" style="--accent:#6366f1">
+        <div class="kpi-label">CPU</div>
+        <div class="kpi-value" id="kpi-cpu">—</div>
+        <div class="kpi-spark"><canvas id="spark-cpu"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Load</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-load">—</div>
-        <div class="text-xs text-slate-500 mt-1" id="kpi-load-sub"></div>
+    <div class="kpi-tile" style="--accent:#22d3ee">
+        <div class="kpi-label">Load 1m</div>
+        <div class="kpi-value" id="kpi-load">—</div>
+        <div class="kpi-spark"><canvas id="spark-load"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Memory</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-mem">—</div>
+    <div class="kpi-tile" style="--accent:#10b981">
+        <div class="kpi-label">Memory</div>
+        <div class="kpi-value" id="kpi-mem">—</div>
+        <div class="kpi-spark"><canvas id="spark-mem"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Disk</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-disk">—</div>
+    <div class="kpi-tile" style="--accent:#f59e0b">
+        <div class="kpi-label">Disk</div>
+        <div class="kpi-value" id="kpi-disk">—</div>
+        <div class="kpi-spark"><canvas id="spark-disk"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Connections</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-conn">—</div>
+    <div class="kpi-tile" style="--accent:#0ea5e9">
+        <div class="kpi-label">Connections</div>
+        <div class="kpi-value" id="kpi-conn">—</div>
+        <div class="kpi-spark"><canvas id="spark-conn"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Database</div>
-        <div class="text-2xl font-bold text-slate-100 mt-1" id="kpi-db">—</div>
+    <div class="kpi-tile" style="--accent:#8b5cf6">
+        <div class="kpi-label">Database</div>
+        <div class="kpi-value" id="kpi-db">—</div>
+        <div class="kpi-spark"><canvas id="spark-db"></canvas></div>
     </div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-4">
-        <div class="text-xs text-slate-400">Active Alerts</div>
-        <div class="text-2xl font-bold mt-1" id="kpi-alerts">—</div>
+    <div class="kpi-tile" style="--accent:#f43f5e">
+        <div class="kpi-label">Active Alerts</div>
+        <div class="kpi-value" id="kpi-alerts">—</div>
     </div>
 </div>
 
-<!-- Graphs: 2 per row, small -->
+<!-- Charts grid: 2 per row -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">CPU Usage</h3><div id="g-cpu" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">System Load (1/5/15 min)</h3><div id="g-load" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Memory Usage</h3><div id="g-mem" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Disk Usage</h3><div id="g-disk" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Network</h3><div id="g-net" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Most Expensive Queries</h3><div id="g-queries" class="w-full h-48"></div></div>
-    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-3"><h3 class="text-xs font-semibold text-slate-300 mb-1">Active Alerts</h3><div id="g-alerts" class="w-full h-48"></div></div>
+    <div class="chart-card"><h3>CPU Usage</h3><div class="chart-box"><canvas id="g-cpu"></canvas></div></div>
+    <div class="chart-card"><h3>System Load (1 / 5 / 15 min)</h3><div class="chart-box"><canvas id="g-load"></canvas></div></div>
+    <div class="chart-card"><h3>Memory Usage</h3><div class="chart-box"><canvas id="g-mem"></canvas></div></div>
+    <div class="chart-card"><h3>Disk Usage</h3><div class="chart-box"><canvas id="g-disk"></canvas></div></div>
+    <div class="chart-card"><h3>Network (MB/s)</h3><div class="chart-box"><canvas id="g-net"></canvas></div></div>
+    <div class="chart-card"><h3>Connections vs Max</h3><div class="chart-box"><canvas id="g-conn"></canvas></div></div>
+    <div class="chart-card"><h3>Top Expensive Queries</h3><div class="chart-box"><canvas id="g-queries"></canvas></div></div>
+    <div class="chart-card"><h3>Alerts by Severity</h3><div class="chart-box"><canvas id="g-alerts"></canvas></div></div>
 </div>
 
 <script>
-const PALETTE = { cpu: '#6366f1', mem: '#10b981', disk: '#f59e0b', netIn: '#0ea5e9', netOut: '#f43f5e', query: '#8b5cf6',
-    load1: '#22d3ee', load5: '#a78bfa', load15: '#fbbf24' };
-let snap = {{ snapshot | tojson }};
-let series = snap.series || [];
+// ============================================================================
+//  Live Dashboard — Chart.js (dark, colorful). WebSocket: init + 1s updates.
+// ============================================================================
+const INIT_SNAPSHOT = {{ snapshot | tojson }};
 
-let currentRange = 'live';
-let historyRefreshTimer = null;
-
-// --- Timezone handling -------------------------------------------------------
-// DB stores naive UTC ISO strings (no Z / offset). We treat them as UTC and
-// convert to the user-selected display timezone for all chart x values.
-
-let currentTz = 'local'; // 'local' | IANA string
-
-function tzLabel() {
-    if (currentTz === 'local') return Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return currentTz;
-}
-
-// Convert a naive UTC ISO string to a Date shifted so that Plotly (which
-// interprets Date objects as local time) displays the correct wall-clock time
-// for the chosen timezone.
-function toTzDate(isoUtc) {
-    // Append Z so the browser parses it as UTC (DB strings have no offset)
-    const utcMs = new Date(isoUtc.endsWith('Z') ? isoUtc : isoUtc + 'Z').getTime();
-    if (currentTz === 'local') return new Date(utcMs);
-    // Get offset of target TZ at this moment
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-        timeZone: currentTz,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    });
-    const parts = fmt.formatToParts(new Date(utcMs));
-    const p = {};
-    parts.forEach(({ type, value }) => { p[type] = value; });
-    // Build a local-time Date that when rendered equals the target-tz time
-    return new Date(`${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`);
-}
-
-function ts(arr) { return arr.map(s => toTzDate(s.timestamp)); }
-
-// --- Layout / chart helpers --------------------------------------------------
-
-const BASE_LAYOUT = {
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
-    font: { color: '#94a3b8' },
-    margin: { l: 40, r: 10, t: 10, b: 30 },
-    yaxis: { showgrid: true, gridcolor: 'rgba(148,163,184,0.15)', zeroline: false },
-    autosize: true,
+const PALETTE = {
+    cpu:   '#6366f1', indigo: '#6366f1',
+    cyan:  '#22d3ee', teal:  '#10b981',
+    amber: '#f59e0b', sky:   '#0ea5e9',
+    violet:'#8b5cf6', rose:  '#f43f5e',
+    lime:  '#a3e635', pink:  '#ec4899',
 };
-const CONFIG = { displayModeBar: false, responsive: true };
-const SPLINE = { shape: 'spline', smoothing: 1.3 };
-let chartsReady = false;
+const TXT = '#94a3b8';
+const GRID = 'rgba(148,163,184,0.12)';
+const CORE_COLORS = ['#22d3ee','#a78bfa','#fbbf24','#34d399','#fb7185','#38bdf8',
+                     '#a3e635','#f472b6','#2dd4bf','#facc15','#c084fc','#4ade80',
+                     '#fda4af','#93c5fd','#fde68a','#6ee7b7'];
+function coreColor(i) { return CORE_COLORS[i % CORE_COLORS.length]; }
 
-function makeLayout(hours) {
-    const xaxis = { showgrid: false, zeroline: false };
-    if (hours === 'live' || hours == null) {
-        xaxis.tickformat = '%H:%M:%S';
-    } else if (hours <= 2) {
-        xaxis.tickformat = '%H:%M';
-    } else if (hours <= 48) {
-        xaxis.tickformat = '%b %d %H:%M';
-    } else {
-        xaxis.tickformat = '%b %d';
+let snap = INIT_SNAPSHOT;
+let series = (INIT_SNAPSHOT.series || []).slice();   // rolling metric points
+let currentRange = 'live';
+let currentTz = 'local';
+
+// --- helper: rgba from hex ---------------------------------------------------
+function hexA(hex, a) {
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+}
+function gradientFill(chart, color) {
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return hexA(color, 0.35);
+    const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    g.addColorStop(0, hexA(color, 0.42));
+    g.addColorStop(1, hexA(color, 0.02));
+    return g;
+}
+
+// --- helper: format a UTC timestamp into a label in the selected timezone ----
+function fmtTime(isoUtc) {
+    if (!isoUtc) return '';
+    const utc = isoUtc.endsWith('Z') || isoUtc.includes('+') ? isoUtc : isoUtc + 'Z';
+    const ms = new Date(utc).getTime();
+    if (isNaN(ms)) return isoUtc;
+    const tz = currentTz === 'local' ? Intl.DateTimeFormat().resolvedOptions().timeZone : currentTz;
+    let opts = { timeZone: tz, hour12: false };
+    if (currentRange === 'live') { opts.hour='2-digit'; opts.minute='2-digit'; opts.second='2-digit'; }
+    else if (currentRange <= 2)  { opts.hour='2-digit'; opts.minute='2-digit'; }
+    else if (currentRange <= 48) { opts.month='short'; opts.day='numeric'; opts.hour='2-digit'; opts.minute='2-digit'; }
+    else                          { opts.month='short'; opts.day='numeric'; }
+    return new Intl.DateTimeFormat('en-GB', opts).format(new Date(ms));
+}
+function labelsFor(rows) { return rows.map(r => fmtTime(r.timestamp)); }
+
+// --- per-core CPU helpers ----------------------------------------------------
+// The CPU chart keeps the aggregate as dataset 0, then one thin dashed line
+// per logical core. Core counts are stable at runtime, but rows recorded
+// before this column existed have no per-core data, so datasets are added
+// on the fly once real values arrive.
+function cpuCoreCount(rows) {
+    for (const r of rows || []) {
+        if (r && Array.isArray(r.cpu_per_core) && r.cpu_per_core.length) {
+            return r.cpu_per_core.length;
+        }
     }
-    return Object.assign({}, BASE_LAYOUT, { xaxis });
+    return 0;
 }
-
-function mkLine(name, color, arr, yFn, extra) {
-    return {
-        x: ts(arr), y: arr.map(yFn),
-        mode: 'lines', line: { color, width: 2, ...SPLINE }, name, ...(extra || {})
-    };
-}
-
-// --- KPIs --------------------------------------------------------------------
-
-function updateKpis(s) {
-    const l = s.latest;
-    if (l) {
-        document.getElementById('kpi-cpu').textContent = (l.cpu != null ? l.cpu.toFixed(1) : '—') + '%';
-        document.getElementById('kpi-load').textContent = l.load_avg != null ? l.load_avg.toFixed(2) : '—';
-        document.getElementById('kpi-load-sub').textContent = l.load_avg_15 != null ? '15m: ' + l.load_avg_15.toFixed(2) : '';
-        const mp = l.mem_total ? (l.mem_used / l.mem_total * 100).toFixed(0) : '—';
-        document.getElementById('kpi-mem').textContent = mp + '%';
-        const dp = l.disk_total ? (l.disk_used / l.disk_total * 100).toFixed(0) : '—';
-        document.getElementById('kpi-disk').textContent = dp + '%';
+function ensureCpuCoreDatasets(rows) {
+    const target = cpuCoreCount(rows) + 1;
+    while (charts.cpu.data.datasets.length < target) {
+        const coreNo = charts.cpu.data.datasets.length - 1;
+        charts.cpu.data.datasets.push({
+            label: `Core ${coreNo}`, data: [],
+            borderColor: coreColor(coreNo), backgroundColor: 'transparent',
+            fill: false, tension: 0.4, borderWidth: 1, pointRadius: 0,
+        });
     }
-    if (s.server) {
-        document.getElementById('kpi-conn').textContent = (s.server.threads_connected ?? '—') + ' / ' + (s.server.max_connections ?? '');
-        document.getElementById('kpi-db').textContent = s.server.database_size_bytes ? (s.server.database_size_bytes / 1073741824).toFixed(2) + ' GB' : '—';
-        document.getElementById('server-label').textContent = s.server.version || '';
+    if (charts.cpu.data.datasets.length > target) {
+        charts.cpu.data.datasets.length = target;
     }
-    const a = document.getElementById('kpi-alerts');
-    a.textContent = s.alerts_active ?? 0;
-    a.className = 'text-2xl font-bold mt-1 ' + ((s.alerts_active || 0) > 0 ? 'text-red-400' : 'text-emerald-400');
+}
+function setCpuData(rows) {
+    charts.cpu.data.datasets[0].data = rows.map(r => r.cpu);
+    for (let i = 1; i < charts.cpu.data.datasets.length; i++) {
+        const coreNo = i - 1;
+        charts.cpu.data.datasets[i].data = rows.map(r =>
+            (r.cpu_per_core && r.cpu_per_core[coreNo] != null) ? r.cpu_per_core[coreNo] : null);
+    }
 }
 
-// --- Chart draw / update -----------------------------------------------------
+// --- helpers: unit formatting ------------------------------------------------
+function gb(n)   { return (n === null || n === undefined) ? '—' : (n/1073741824).toFixed(1) + ' GB'; }
+function mbs(n)  { return (n === null || n === undefined) ? '—' : (n/1048576).toFixed(2) + ' MB/s'; }
+function pct(n)  { return (n === null || n === undefined) ? '—' : Math.round(n) + '%'; }
+function memPctOf(l) { return l.mem_pct != null ? l.mem_pct : (l.mem_total ? l.mem_used / l.mem_total * 100 : null); }
+function diskPctOf(l) { return l.disk_pct != null ? l.disk_pct : (l.disk_total ? l.disk_used / l.disk_total * 100 : null); }
 
-function initCharts(hours) {
-    chartsReady = false;
-    const layout = makeLayout(hours);
-    const yLayout = Object.assign({}, layout, { yaxis: { ...layout.yaxis, range: [0, 100] } });
-    Plotly.react('g-cpu',  [mkLine('CPU %',  PALETTE.cpu,  series, s => s.cpu)],  yLayout, CONFIG);
-    Plotly.react('g-load', [
-        mkLine('1m',  PALETTE.load1,  series, s => s.load_avg),
-        mkLine('5m',  PALETTE.load5,  series, s => s.load_avg_5),
-        mkLine('15m', PALETTE.load15, series, s => s.load_avg_15),
-    ], layout, CONFIG);
-    Plotly.react('g-mem', [
-        mkLine('RAM %',  PALETTE.mem, series, s => s.mem_pct),
-        mkLine('Swap %', '#eab308',   series, s => s.swap_pct,
-            { line: { color: '#eab308', width: 2, dash: 'dash', ...SPLINE } }),
-    ], yLayout, CONFIG);
-    Plotly.react('g-disk', [mkLine('Disk %', PALETTE.disk, series, s => s.disk_pct)], yLayout, CONFIG);
-    Plotly.react('g-net', [
-        mkLine('In',  PALETTE.netIn,  series, s => s.net_in),
-        mkLine('Out', PALETTE.netOut, series, s => s.net_out),
-    ], layout, CONFIG);
-    redrawStatic();
-    chartsReady = true;
+// ============================================================================
+//  Chart.js instance registry + options
+// ============================================================================
+const charts = {};
+const SPARKS = ['cpu','load','mem','disk','conn','db'];
+const sparkData = {};
+SPARKS.forEach(k => sparkData[k] = []);
+const sparkCharts = {};
+
+function baseOpts(extra) {
+    return Object.assign({
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 300, easing: 'easeOutQuart' },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { labels: { color: TXT, boxWidth: 8, usePointStyle: true } },
+            tooltip: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1,
+                       titleColor: '#e2e8f0', bodyColor: '#cbd5e1' },
+        },
+        scales: {
+            x: { grid: { color: 'rgba(0,0,0,0)' }, ticks: { color: TXT, maxRotation: 0,
+                   autoSkip: true, maxTicksLimit: 8 } },
+            y: { grid: { color: GRID }, ticks: { color: TXT } },
+        },
+    }, extra || {});
 }
 
-function redrawStatic() {
-    const q = (snap.expensive || []).slice(0, 8);
-    Plotly.react('g-queries', [{
-        x: q.map(r => r.total_ms), y: q.map(r => r.query.slice(0, 28)), type: 'bar', orientation: 'h',
-        marker: { color: PALETTE.query },
-    }], Object.assign({}, BASE_LAYOUT, { yaxis: { autorange: 'reversed', showgrid: false } }), CONFIG);
-    const a = snap.alerts_active || 0;
-    Plotly.react('g-alerts', [{
-        values: [a, Math.max(1, 10 - a)], labels: ['Active', 'OK'], type: 'pie', hole: .6,
-        marker: { colors: ['#f43f5e', '#1f2937'] },
-    }], Object.assign({}, BASE_LAYOUT, { showlegend: false }), CONFIG);
+// --- main charts ------------------------------------------------------------
+function initCharts() {
+    const labels = labelsFor(series);
+    const cpu = series.map(r => r.cpu);
+    const load = series.map(r => r.load_avg);
+
+    charts.cpu = new Chart(document.getElementById('g-cpu'), {
+        type: 'line',
+        data: { labels, datasets: [{
+            label: 'CPU %', data: cpu, borderColor: PALETTE.cpu,
+            backgroundColor: c => gradientFill(c.chart, PALETTE.cpu),
+            fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0,
+        }]},
+        options: baseOpts({ scales: { x: baseOpts().scales.x,
+            y: Object.assign(baseOpts().scales.y, { min: 0, max: 100 }) } }),
+    });
+    ensureCpuCoreDatasets(series);
+    setCpuData(series);
+
+    charts.load = new Chart(document.getElementById('g-load'), {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'Load 1m',  data: series.map(r => r.load_avg),  borderColor: PALETTE.cyan,   tension: 0.4, borderWidth: 2, pointRadius: 0 },
+            { label: 'Load 5m',  data: series.map(r => r.load_avg_5),  borderColor: PALETTE.violet, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+            { label: 'Load 15m', data: series.map(r => r.load_avg_15), borderColor: PALETTE.amber,  tension: 0.4, borderWidth: 2, pointRadius: 0 },
+        ]},
+        options: baseOpts(),
+    });
+
+    charts.mem = new Chart(document.getElementById('g-mem'), {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'Mem %', data: series.map(r => r.mem_pct),
+              borderColor: PALETTE.teal,
+              backgroundColor: c => gradientFill(c.chart, PALETTE.teal),
+              fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+            { label: 'Swap %', data: series.map(r => r.swap_pct),
+              borderColor: PALETTE.amber, borderDash: [4,4], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+        ]},
+        options: baseOpts({ scales: { x: baseOpts().scales.x,
+            y: Object.assign(baseOpts().scales.y, { min: 0, max: 100 }) } }),
+    });
+
+    charts.disk = new Chart(document.getElementById('g-disk'), {
+        type: 'line',
+        data: { labels, datasets: [{
+            label: 'Disk %', data: series.map(r => r.disk_pct),
+            borderColor: PALETTE.amber,
+            backgroundColor: c => gradientFill(c.chart, PALETTE.amber),
+            fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0,
+        }]},
+        options: baseOpts({ scales: { x: baseOpts().scales.x,
+            y: Object.assign(baseOpts().scales.y, { min: 0, max: 100 }) } }),
+    });
+
+    charts.net = new Chart(document.getElementById('g-net'), {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'In',  data: series.map(r => r.net_in),  borderColor: PALETTE.sky,   tension: 0.4, borderWidth: 2, pointRadius: 0 },
+            { label: 'Out', data: series.map(r => r.net_out), borderColor: PALETTE.rose,  tension: 0.4, borderWidth: 2, pointRadius: 0 },
+        ]},
+        options: baseOpts({ scales: { x: baseOpts().scales.x,
+            y: Object.assign(baseOpts().scales.y, { ticks: Object.assign(baseOpts().scales.y.ticks,
+               { callback: v => (v/1048576).toFixed(1) }) }) } }),
+    });
+
+    charts.conn = new Chart(document.getElementById('g-conn'), {
+        type: 'line',
+        data: { labels: [], datasets: [
+            { label: 'Connections', data: [], borderColor: PALETTE.sky,
+              backgroundColor: c => gradientFill(c.chart, PALETTE.sky),
+              fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+            { label: 'Max', data: [], borderColor: PALETTE.rose,
+              borderDash: [6,4], fill: false, borderWidth: 2, pointRadius: 0 },
+        ]},
+        options: baseOpts(),
+    });
+    // connections chart uses its own rolling window from server brief
+    charts.connLabels = [];
+    charts.connMax = [];
+
+    // Top queries — horizontal bar (static, refreshed from snapshot)
+    const exp = snap.expensive || [];
+    charts.queries = new Chart(document.getElementById('g-queries'), {
+        type: 'bar',
+        data: {
+            labels: exp.map(q => (q.digest_text || q.query || '?').slice(0, 34)),
+            datasets: [{
+                label: 'Exec count', data: exp.map(q => q.count || 0),
+                backgroundColor: exp.map((_, i) => hexA(PALETTE.violet, 1 - i*0.09)),
+                borderRadius: 4,
+            }],
+        },
+        options: baseOpts({
+            indexAxis: 'y',
+            animation: { duration: 600, easing: 'easeOutQuart' },
+            scales: {
+                x: Object.assign(baseOpts().scales.y, { beginAtZero: true }),
+                y: Object.assign(baseOpts().scales.x, { ticks: { color: TXT, font: { size: 10 } } }),
+            },
+        }),
+    });
+
+    // Alerts — doughnut (updates from live alerts_active)
+    charts.alerts = new Chart(document.getElementById('g-alerts'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Active', 'Clear / Other'],
+            datasets: [{ data: [0, 1], backgroundColor: [PALETTE.rose, '#334155'], borderWidth: 0 }],
+        },
+        options: baseOpts({
+            plugins: Object.assign(baseOpts().plugins, { legend: { position: 'bottom',
+                labels: { color: TXT, boxWidth: 8, usePointStyle: true } } }),
+            scales: {},
+        }),
+    });
+    updateAlertChart();
+
+    buildSparklines();
 }
 
-function appendPoint(pt) {
-    if (!chartsReady || currentRange !== 'live') return;
-    const t = toTzDate(pt.timestamp);
-    const MAX_PTS = 120;
-    const maxPts = { max_points: MAX_PTS };
-    Plotly.extendTraces('g-cpu',  { x: [[t]], y: [[pt.cpu]] }, [0], maxPts);
-    Plotly.extendTraces('g-load', { x: [[t],[t],[t]], y: [[pt.load_avg],[pt.load_avg_5],[pt.load_avg_15]] }, [0,1,2], maxPts);
-    const memPct  = pt.mem_total ? pt.mem_used / pt.mem_total * 100 : null;
-    const swapPct = pt.mem_total ? (pt.swap_used || 0) / pt.mem_total * 100 : null;
-    Plotly.extendTraces('g-mem',  { x: [[t],[t]], y: [[memPct],[swapPct]] }, [0,1], maxPts);
-    const diskPct = pt.disk_total ? pt.disk_used / pt.disk_total * 100 : null;
-    Plotly.extendTraces('g-disk', { x: [[t]], y: [[diskPct]] }, [0], maxPts);
-    Plotly.extendTraces('g-net',  { x: [[t],[t]], y: [[pt.net_in],[pt.net_out]] }, [0,1], maxPts);
+// ============================================================================
+//  Sparkline tiles
+// ============================================================================
+function buildSparklines() {
+    SPARKS.forEach(key => {
+        const el = document.getElementById('spark-' + key);
+        if (!el) return;
+        sparkCharts[key] = new Chart(el, {
+            type: 'line',
+            data: { labels: [], datasets: [{ data: [], borderColor: sparkColor(key),
+                backgroundColor: c => hexA(sparkColor(key), 0.18),
+                fill: true, tension: 0.4, borderWidth: 1.5, pointRadius: 0 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false, beginAtZero: key === 'mem' || key === 'cpu' || key === 'disk' } },
+            },
+        });
+    });
+    sparkData.cpu = series.map(r => r.cpu);
+    sparkData.load = series.map(r => r.load_avg);
+    sparkData.mem = series.map(r => r.mem_pct);
+    sparkData.disk = series.map(r => r.disk_pct);
+    refreshSparks();
+}
+function sparkColor(key) {
+    return { cpu: PALETTE.cpu, load: PALETTE.cyan, mem: PALETTE.teal,
+             disk: PALETTE.amber, conn: PALETTE.sky, db: PALETTE.violet }[key] || PALETTE.indigo;
+}
+function refreshSparks() {
+    SPARKS.forEach(key => {
+        const ch = sparkCharts[key];
+        if (!ch) return;
+        const data = sparkData[key] || [];
+        ch.data.datasets[0].data = data.slice(-40);
+        ch.update('none');
+    });
 }
 
-// --- History fetch -----------------------------------------------------------
-
-async function loadHistory(hours) {
-    const from = new Date(Date.now() - hours * 3600 * 1000).toISOString();
-    const resp = await fetch(`/api/system?from=${encodeURIComponent(from)}&limit=10000`);
-    if (!resp.ok) return;
-    series = await resp.json();
-    initCharts(hours);
+// ============================================================================
+//  KPI tiles
+// ============================================================================
+function updateKpis() {
+    const latest = snap.latest || {};
+    const server = snap.server || {};
+    const conn = (latest && latest.threads_connected != null) ? latest.threads_connected : (server.threads_connected != null ? server.threads_connected : null);
+    setVal('kpi-cpu',  latest.cpu != null ? Math.round(latest.cpu) + '%' : '—');
+    setVal('kpi-load', latest.load_avg != null ? latest.load_avg.toFixed(2) : '—', latest.load_avg_5 != null ? `5m ${latest.load_avg_5.toFixed(2)} · 15m ${latest.load_avg_15 != null ? latest.load_avg_15.toFixed(2) : '—'}` : '');
+    setVal('kpi-mem',  memPctOf(latest) != null ? pct(memPctOf(latest)) : '—');
+    setVal('kpi-disk', diskPctOf(latest) != null ? pct(diskPctOf(latest)) : '—');
+    setVal('kpi-conn', conn != null ? String(conn) : '—', server.max_connections != null ? `max ${server.max_connections}` : '');
+    setVal('kpi-db',   server.database_size_bytes != null ? gb(server.database_size_bytes) : '—');
+    setVal('kpi-alerts', snap.alerts_active != null ? String(snap.alerts_active) : '—');
+    const host = server.hostname || '';
+    if (host) setVal('server-label', `${host}:${server.port || ''}${server.version ? ' · ' + server.version : ''}`);
+}
+function setVal(id, text, sub) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+    if (sub !== undefined) {
+        const subEl = document.getElementById(id + '-sub');
+        if (subEl) subEl.textContent = sub;
+    }
+}
+function updateAlertChart() {
+    const ch = charts.alerts;
+    if (!ch) return;
+    const n = snap.alerts_active != null ? snap.alerts_active : 0;
+    ch.data.datasets[0].data = [n, Math.max(1, 1)];
+    ch.update('none');
 }
 
-function startHistoryRefresh(hours) {
-    clearInterval(historyRefreshTimer);
-    historyRefreshTimer = setInterval(() => loadHistory(hours), 60000);
+// ============================================================================
+//  Append one live point (rolling window) to charts + sparks
+// ============================================================================
+const MAX_LIVE = 120;
+function pushCapped(arr, v) {
+    arr.push(v);
+    if (arr.length > MAX_LIVE) arr.shift();
+}
+function appendPoint(pt, serverBrief) {
+    const label = fmtTime(pt.timestamp);
+    pushCapped(charts.cpu.data.labels, label);
+    pushCapped(charts.cpu.data.datasets[0].data, pt.cpu);
+    const ptCores = pt.cpu_per_core || [];
+    for (let i = 1; i < charts.cpu.data.datasets.length; i++) {
+        pushCapped(charts.cpu.data.datasets[i].data,
+            ptCores[i - 1] != null ? ptCores[i - 1] : null);
+    }
+    pushCapped(charts.load.data.labels, label);
+    pushCapped(charts.load.data.datasets[0].data, pt.load_avg);
+    pushCapped(charts.load.data.datasets[1].data, pt.load_avg_5);
+    pushCapped(charts.load.data.datasets[2].data, pt.load_avg_15);
+    pushCapped(charts.mem.data.labels, label);
+    pushCapped(charts.mem.data.datasets[0].data, memPctOf(pt));
+    pushCapped(charts.mem.data.datasets[1].data, pt.swap_pct);
+    pushCapped(charts.disk.data.labels, label);
+    pushCapped(charts.disk.data.datasets[0].data, diskPctOf(pt));
+    pushCapped(charts.net.data.labels, label);
+    pushCapped(charts.net.data.datasets[0].data, pt.net_in);
+    pushCapped(charts.net.data.datasets[1].data, pt.net_out);
+
+    // Connections rolling window
+    const cval = serverBrief && serverBrief.threads_connected != null ? serverBrief.threads_connected : null;
+    charts.connLabels.push(label);
+    if (charts.connLabels.length > 120) charts.connLabels.shift();
+    if (serverBrief && serverBrief.max_connections != null) {
+        charts.connMax.push(serverBrief.max_connections);
+        if (charts.connMax.length > 120) charts.connMax.shift();
+    }
+    charts.conn.data.labels = charts.connLabels;
+    charts.conn.data.datasets[0].data.push(cval);
+    if (charts.conn.data.datasets[0].data.length > 120) charts.conn.data.datasets[0].data.shift();
+    charts.conn.data.datasets[1].data = charts.connMax;
+
+    // Sparks
+    sparkData.cpu.push(pt.cpu); if (sparkData.cpu.length > 40) sparkData.cpu.shift();
+    sparkData.load.push(pt.load_avg); if (sparkData.load.length > 40) sparkData.load.shift();
+    sparkData.mem.push(memPctOf(pt)); if (sparkData.mem.length > 40) sparkData.mem.shift();
+    sparkData.disk.push(diskPctOf(pt)); if (sparkData.disk.length > 40) sparkData.disk.shift();
+    if (cval != null) { sparkData.conn.push(cval); if (sparkData.conn.length > 40) sparkData.conn.shift(); }
+    if (serverBrief && serverBrief.database_size_bytes != null) {
+        sparkData.db.push(serverBrief.database_size_bytes / 1073741824);
+        if (sparkData.db.length > 40) sparkData.db.shift();
+    }
+
+    ['cpu','load','mem','disk','net'].forEach(k => charts[k].update('none'));
+    charts.conn.update('none');
+    refreshSparks();
 }
 
-// --- Mode switching ----------------------------------------------------------
-
-function setLiveMode() {
-    clearInterval(historyRefreshTimer);
-    historyRefreshTimer = null;
+// ============================================================================
+//  History mode (range selector)
+// ============================================================================
+async function loadHistory(rangeHours) {
+    currentRange = rangeHours;
+    const from = new Date(Date.now() - rangeHours * 3600 * 1000).toISOString();
+    const res = await fetch(`/api/system?from=${encodeURIComponent(from)}`);
+    if (!res.ok) throw new Error('history fetch failed');
+    const rows = await res.json();
+    if (!rows.length) return;
+    series = rows;
+    const labels = labelsFor(rows);
+    setSeries(labels, rows);
+    sparkData.cpu = rows.map(r => r.cpu);
+    sparkData.load = rows.map(r => r.load_avg);
+    sparkData.mem = rows.map(r => r.mem_pct);
+    sparkData.disk = rows.map(r => r.disk_pct);
+    refreshSparks();
+}
+function setSeries(labels, rows) {
+    charts.cpu.data.labels = labels;
+    ensureCpuCoreDatasets(rows);
+    setCpuData(rows);
+    charts.load.data.labels = labels;
+    charts.load.data.datasets[0].data = rows.map(r => r.load_avg);
+    charts.load.data.datasets[1].data = rows.map(r => r.load_avg_5);
+    charts.load.data.datasets[2].data = rows.map(r => r.load_avg_15);
+    charts.mem.data.labels = labels; charts.mem.data.datasets[0].data = rows.map(r => r.mem_pct);
+    charts.mem.data.datasets[1].data = rows.map(r => r.swap_pct);
+    charts.disk.data.labels = labels; charts.disk.data.datasets[0].data = rows.map(r => r.disk_pct);
+    charts.net.data.labels = labels;
+    charts.net.data.datasets[0].data = rows.map(r => r.net_in);
+    charts.net.data.datasets[1].data = rows.map(r => r.net_out);
+    ['cpu','load','mem','disk','net'].forEach(k => charts[k].update('none'));
+}
+function resetLive() {
+    // Re-seed rolling window from the last points of the snapshot's series
+    const rows = (snap.series || []).slice();
+    series = rows;
     currentRange = 'live';
-    series = snap.series || [];
-    initCharts('live');
-    document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
-    document.getElementById('live-label').textContent = 'Live';
-    document.getElementById('live-label').className = 'text-sm text-emerald-400 font-medium';
+    const labels = labelsFor(rows);
+    charts.conn.data.labels = [];
+    charts.conn.data.datasets[0].data = [];
+    charts.connMax = [];
+    setSeries(labels, rows);
+    // Build connections series from snapshot (no per-tick threads here)
+    const server = snap.server || {};
+    if (server.threads_connected != null) {
+        const clabel = labels.length ? labels[labels.length - 1] : fmtTime((rows.length ? rows[rows.length-1].timestamp : null));
+        charts.conn.data.labels = [clabel];
+        charts.conn.data.datasets[0].data = [server.threads_connected];
+        if (server.max_connections != null) charts.connMax = [server.max_connections];
+        charts.conn.data.datasets[1].data = charts.connMax;
+        charts.conn.update('none');
+    }
+    sparkData.cpu = rows.map(r => r.cpu);
+    sparkData.load = rows.map(r => r.load_avg);
+    sparkData.mem = rows.map(r => r.mem_pct);
+    sparkData.disk = rows.map(r => r.disk_pct);
+    refreshSparks();
 }
 
-function setHistoryMode(hours) {
-    currentRange = hours;
-    document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-slate-500';
-    document.getElementById('live-label').textContent = 'History';
-    document.getElementById('live-label').className = 'text-sm text-slate-400 font-medium';
-    loadHistory(hours).then(() => startHistoryRefresh(hours));
-}
-
-// --- Event wiring ------------------------------------------------------------
-
+// ============================================================================
+//  Range + timezone controls
+// ============================================================================
 document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
         document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const range = btn.dataset.range;
-        if (range === 'live') { setLiveMode(); } else { setHistoryMode(parseInt(range, 10)); }
+        const liveLabel = document.getElementById('live-label');
+        if (range === 'live') {
+            resetLive();
+            liveLabel.textContent = 'Live';
+            liveLabel.className = 'text-sm text-emerald-400 font-medium';
+            document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+        } else {
+            liveLabel.textContent = range + 'h';
+            liveLabel.className = 'text-sm text-indigo-400 font-medium';
+            document.getElementById('live-dot').className = 'inline-block w-2.5 h-2.5 rounded-full bg-indigo-500';
+            try { await loadHistory(parseInt(range, 10)); }
+            catch (e) { console.error('history load failed', e); }
+        }
     });
 });
 
-document.getElementById('tz-select').addEventListener('change', function() {
+document.getElementById('tz-select').addEventListener('change', function () {
     currentTz = this.value;
-    // Redraw with same data in new timezone
-    if (currentRange === 'live') {
-        initCharts('live');
-    } else {
-        initCharts(currentRange);
-    }
+    if (currentRange === 'live') resetLive();
+    else { const hrs = currentRange; setSeries(labelsFor(series), series); }
 });
 
-// --- WebSocket ---------------------------------------------------------------
-
+// ============================================================================
+//  WebSocket — init snapshot then incremental 1s updates
+// ============================================================================
+let ws = null;
 function connectWs() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onmessage = (e) => {
-        const s = JSON.parse(e.data);
-        snap = s;
-        updateKpis(s);
-        if (currentRange === 'live' && s.latest) {
-            series.push(s.latest);
-            if (series.length > 120) series.shift();
-            appendPoint(s.latest);
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'init') {
+            snap = msg.snapshot;
+            series = (snap.series || []).slice();
+            updateKpis();
+            if (currentRange === 'live') resetLive();
+            else { setSeries(labelsFor(series), series); }
+        } else if (msg.type === 'update') {
+            snap.latest = msg.latest;
+            snap.server = Object.assign(snap.server || {}, msg.server || {});
+            snap.alerts_active = msg.alerts_active;
+            updateKpis();
+            updateAlertChart();
+            if (currentRange === 'live' && msg.latest) {
+                series.push(msg.latest);
+                if (series.length > 120) series.shift();
+                appendPoint(msg.latest, msg.server);
+            }
         }
-        redrawStatic();
     };
-    ws.onclose = () => { chartsReady = false; setTimeout(connectWs, 3000); };
+    ws.onclose = () => { setTimeout(connectWs, 3000); };
 }
 
-// --- Boot --------------------------------------------------------------------
-// Pre-select browser timezone in the dropdown if it matches one of our options
-(function() {
+// ============================================================================
+//  Boot
+// ============================================================================
+(function () {
     const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const sel = document.getElementById('tz-select');
     for (const opt of sel.options) {
@@ -355,8 +670,8 @@ function connectWs() {
     }
 })();
 
-updateKpis(snap);
-initCharts('live');
+initCharts();
+updateKpis();
 connectWs();
 </script>
 {% endblock %}

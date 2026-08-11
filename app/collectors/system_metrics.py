@@ -26,6 +26,10 @@ def collect(session, conn=None) -> int:
     conn is accepted for interface uniformity; it is unused here.
     """
     cpu = psutil.cpu_percent(interval=None)
+    try:
+        per_core = psutil.cpu_percent(interval=None, percpu=True) or []
+    except Exception:
+        per_core = []
     _loads = psutil.getloadavg() if hasattr(psutil, "getloadavg") else (0.0, 0.0, 0.0)
     load1, load5, load15 = (_loads + (0.0, 0.0, 0.0))[:3]
     freq = None
@@ -42,6 +46,7 @@ def collect(session, conn=None) -> int:
 
     row = SystemMetrics(
         cpu=cpu,
+        cpu_per_core=per_core or None,
         load_avg=round(load1, 3),
         load_avg_5=round(load5, 3),
         load_avg_15=round(load15, 3),
