@@ -88,6 +88,7 @@ def _latest_system(db: Session) -> dict | None:
     return {
         "timestamp": _iso(row.timestamp),
         "cpu": row.cpu,
+        "cpu_per_core": list(row.cpu_per_core) if row.cpu_per_core else [],
         "load_avg": row.load_avg,
         "load_avg_5": row.load_avg_5,
         "load_avg_15": row.load_avg_15,
@@ -105,6 +106,7 @@ def _system_row(r) -> dict:
     return {
         "timestamp": _iso(r.timestamp),
         "cpu": r.cpu,
+        "cpu_per_core": list(r.cpu_per_core) if r.cpu_per_core else [],
         "load_avg": r.load_avg,
         "load_avg_5": r.load_avg_5,
         "load_avg_15": r.load_avg_15,

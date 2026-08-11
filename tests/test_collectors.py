@@ -1,6 +1,7 @@
 from app.collectors import mysql_status, slow_queries, innodb, system_metrics
 from app.models import MySqlServer, QueryStats, SystemMetrics
 from sqlalchemy import select
+import os
 
 from conftest import FakeConn
 
@@ -88,3 +89,13 @@ def test_system_metrics_stores_load_averages(session):
         assert getattr(row, attr) is not None
     # The 15-min average is the smoothest and should be >= 0.
     assert row.load_avg_15 >= 0.0
+
+
+def test_system_metrics_captures_per_core_cpu(session):
+    """Per-core CPU percentages are captured and persisted as a list."""
+    assert system_metrics.collect(session, conn=None) == 1
+    row = session.scalar(select(SystemMetrics).limit(1))
+    assert row is not None
+    assert isinstance(row.cpu_per_core, list)
+    assert len(row.cpu_per_core) == os.cpu_count()
+    assert all(isinstance(v, float) for v in row.cpu_per_core)

@@ -173,6 +173,10 @@ const PALETTE = {
 };
 const TXT = '#94a3b8';
 const GRID = 'rgba(148,163,184,0.12)';
+const CORE_COLORS = ['#22d3ee','#a78bfa','#fbbf24','#34d399','#fb7185','#38bdf8',
+                     '#a3e635','#f472b6','#2dd4bf','#facc15','#c084fc','#4ade80',
+                     '#fda4af','#93c5fd','#fde68a','#6ee7b7'];
+function coreColor(i) { return CORE_COLORS[i % CORE_COLORS.length]; }
 
 let snap = INIT_SNAPSHOT;
 let series = (INIT_SNAPSHOT.series || []).slice();   // rolling metric points
@@ -208,6 +212,42 @@ function fmtTime(isoUtc) {
     return new Intl.DateTimeFormat('en-GB', opts).format(new Date(ms));
 }
 function labelsFor(rows) { return rows.map(r => fmtTime(r.timestamp)); }
+
+// --- per-core CPU helpers ----------------------------------------------------
+// The CPU chart keeps the aggregate as dataset 0, then one thin dashed line
+// per logical core. Core counts are stable at runtime, but rows recorded
+// before this column existed have no per-core data, so datasets are added
+// on the fly once real values arrive.
+function cpuCoreCount(rows) {
+    for (const r of rows || []) {
+        if (r && Array.isArray(r.cpu_per_core) && r.cpu_per_core.length) {
+            return r.cpu_per_core.length;
+        }
+    }
+    return 0;
+}
+function ensureCpuCoreDatasets(rows) {
+    const target = cpuCoreCount(rows) + 1;
+    while (charts.cpu.data.datasets.length < target) {
+        const coreNo = charts.cpu.data.datasets.length - 1;
+        charts.cpu.data.datasets.push({
+            label: `Core ${coreNo}`, data: [],
+            borderColor: coreColor(coreNo), backgroundColor: 'transparent',
+            fill: false, tension: 0.4, borderWidth: 1, pointRadius: 0,
+        });
+    }
+    if (charts.cpu.data.datasets.length > target) {
+        charts.cpu.data.datasets.length = target;
+    }
+}
+function setCpuData(rows) {
+    charts.cpu.data.datasets[0].data = rows.map(r => r.cpu);
+    for (let i = 1; i < charts.cpu.data.datasets.length; i++) {
+        const coreNo = i - 1;
+        charts.cpu.data.datasets[i].data = rows.map(r =>
+            (r.cpu_per_core && r.cpu_per_core[coreNo] != null) ? r.cpu_per_core[coreNo] : null);
+    }
+}
 
 // --- helpers: unit formatting ------------------------------------------------
 function gb(n)   { return (n === null || n === undefined) ? '—' : (n/1073741824).toFixed(1) + ' GB'; }
@@ -257,6 +297,8 @@ function initCharts() {
         options: baseOpts({ scales: { x: baseOpts().scales.x,
             y: Object.assign(baseOpts().scales.y, { min: 0, max: 100 }) } }),
     });
+    ensureCpuCoreDatasets(series);
+    setCpuData(series);
 
     charts.load = new Chart(document.getElementById('g-load'), {
         type: 'line',
@@ -445,6 +487,11 @@ function appendPoint(pt, serverBrief) {
     const label = fmtTime(pt.timestamp);
     pushCapped(charts.cpu.data.labels, label);
     pushCapped(charts.cpu.data.datasets[0].data, pt.cpu);
+    const ptCores = pt.cpu_per_core || [];
+    for (let i = 1; i < charts.cpu.data.datasets.length; i++) {
+        pushCapped(charts.cpu.data.datasets[i].data,
+            ptCores[i - 1] != null ? ptCores[i - 1] : null);
+    }
     pushCapped(charts.load.data.labels, label);
     pushCapped(charts.load.data.datasets[0].data, pt.load_avg);
     pushCapped(charts.load.data.datasets[1].data, pt.load_avg_5);
@@ -507,7 +554,9 @@ async function loadHistory(rangeHours) {
     refreshSparks();
 }
 function setSeries(labels, rows) {
-    charts.cpu.data.labels = labels; charts.cpu.data.datasets[0].data = rows.map(r => r.cpu);
+    charts.cpu.data.labels = labels;
+    ensureCpuCoreDatasets(rows);
+    setCpuData(rows);
     charts.load.data.labels = labels;
     charts.load.data.datasets[0].data = rows.map(r => r.load_avg);
     charts.load.data.datasets[1].data = rows.map(r => r.load_avg_5);
