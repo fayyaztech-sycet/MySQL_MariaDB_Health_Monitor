@@ -95,8 +95,11 @@ def _latest_system(db: Session) -> dict | None:
         "mem_total": row.mem_total,
         "mem_used": row.mem_used,
         "mem_avail": row.mem_avail,
+        "mem_pct": round(row.mem_used / row.mem_total * 100, 1) if row.mem_total else 0.0,
+        "swap_pct": round(row.swap_used / row.swap_total * 100, 1) if row.swap_total else 0.0,
         "disk_used": row.disk_used,
         "disk_total": row.disk_total,
+        "disk_pct": round(row.disk_used / row.disk_total * 100, 1) if row.disk_total else 0.0,
         "net_in": row.net_in,
         "net_out": row.net_out,
     }

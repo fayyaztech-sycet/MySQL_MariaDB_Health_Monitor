@@ -253,6 +253,8 @@ function setCpuData(rows) {
 function gb(n)   { return (n === null || n === undefined) ? '—' : (n/1073741824).toFixed(1) + ' GB'; }
 function mbs(n)  { return (n === null || n === undefined) ? '—' : (n/1048576).toFixed(2) + ' MB/s'; }
 function pct(n)  { return (n === null || n === undefined) ? '—' : Math.round(n) + '%'; }
+function memPctOf(l) { return l.mem_pct != null ? l.mem_pct : (l.mem_total ? l.mem_used / l.mem_total * 100 : null); }
+function diskPctOf(l) { return l.disk_pct != null ? l.disk_pct : (l.disk_total ? l.disk_used / l.disk_total * 100 : null); }
 
 // ============================================================================
 //  Chart.js instance registry + options
@@ -451,8 +453,8 @@ function updateKpis() {
     const conn = (latest && latest.threads_connected != null) ? latest.threads_connected : (server.threads_connected != null ? server.threads_connected : null);
     setVal('kpi-cpu',  latest.cpu != null ? Math.round(latest.cpu) + '%' : '—');
     setVal('kpi-load', latest.load_avg != null ? latest.load_avg.toFixed(2) : '—', latest.load_avg_5 != null ? `5m ${latest.load_avg_5.toFixed(2)} · 15m ${latest.load_avg_15 != null ? latest.load_avg_15.toFixed(2) : '—'}` : '');
-    setVal('kpi-mem',  latest.mem_pct != null ? pct(latest.mem_pct) : '—');
-    setVal('kpi-disk', latest.disk_pct != null ? pct(latest.disk_pct) : '—');
+    setVal('kpi-mem',  memPctOf(latest) != null ? pct(memPctOf(latest)) : '—');
+    setVal('kpi-disk', diskPctOf(latest) != null ? pct(diskPctOf(latest)) : '—');
     setVal('kpi-conn', conn != null ? String(conn) : '—', server.max_connections != null ? `max ${server.max_connections}` : '');
     setVal('kpi-db',   server.database_size_bytes != null ? gb(server.database_size_bytes) : '—');
     setVal('kpi-alerts', snap.alerts_active != null ? String(snap.alerts_active) : '—');
@@ -497,10 +499,10 @@ function appendPoint(pt, serverBrief) {
     pushCapped(charts.load.data.datasets[1].data, pt.load_avg_5);
     pushCapped(charts.load.data.datasets[2].data, pt.load_avg_15);
     pushCapped(charts.mem.data.labels, label);
-    pushCapped(charts.mem.data.datasets[0].data, pt.mem_pct);
+    pushCapped(charts.mem.data.datasets[0].data, memPctOf(pt));
     pushCapped(charts.mem.data.datasets[1].data, pt.swap_pct);
     pushCapped(charts.disk.data.labels, label);
-    pushCapped(charts.disk.data.datasets[0].data, pt.disk_pct);
+    pushCapped(charts.disk.data.datasets[0].data, diskPctOf(pt));
     pushCapped(charts.net.data.labels, label);
     pushCapped(charts.net.data.datasets[0].data, pt.net_in);
     pushCapped(charts.net.data.datasets[1].data, pt.net_out);
@@ -521,8 +523,8 @@ function appendPoint(pt, serverBrief) {
     // Sparks
     sparkData.cpu.push(pt.cpu); if (sparkData.cpu.length > 40) sparkData.cpu.shift();
     sparkData.load.push(pt.load_avg); if (sparkData.load.length > 40) sparkData.load.shift();
-    sparkData.mem.push(pt.mem_pct); if (sparkData.mem.length > 40) sparkData.mem.shift();
-    sparkData.disk.push(pt.disk_pct); if (sparkData.disk.length > 40) sparkData.disk.shift();
+    sparkData.mem.push(memPctOf(pt)); if (sparkData.mem.length > 40) sparkData.mem.shift();
+    sparkData.disk.push(diskPctOf(pt)); if (sparkData.disk.length > 40) sparkData.disk.shift();
     if (cval != null) { sparkData.conn.push(cval); if (sparkData.conn.length > 40) sparkData.conn.shift(); }
     if (serverBrief && serverBrief.database_size_bytes != null) {
         sparkData.db.push(serverBrief.database_size_bytes / 1073741824);
